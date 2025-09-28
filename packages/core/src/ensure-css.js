@@ -1,6 +1,4 @@
 // packages/core/src/ensure-css.js
-// Tiny helper so ExplorableCard can load its CSS once.
-
 export const ExplorableCardCSS = {
   ensure() {
     const id = 'explorable-card-css';

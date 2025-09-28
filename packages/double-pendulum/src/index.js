@@ -1,15 +1,15 @@
 // packages/double-pendulum/src/index.js
-// Double pendulum explorable using your widgets and grid layout.
-// Controls: roomy, play as a single toggle, N is integer (live-rounded).
+// Full explorable: Play/Pause + Reload (optional), Trails toggle,
+// sliders: N (int), σ, L1, L2, m1, m2; scene + phase plane with θ₁ / θ₂ labels.
 
 import slider from '../../widgets/src/slider.js';
 import sliderElement from '../../widgets/src/sliderElement.js';
 import toggle from '../../widgets/src/toggle.js';
 import toggleElement from '../../widgets/src/toggleElement.js';
-import iconFor from '../../widgets/src/button-symbols.js'; // kept in case you later want icon buttons
+import iconFor from '../../widgets/src/button-symbols.js';
 import { Grid } from '../../widgets/src/gridd.js';
 
-// Ensure plain (non-modules) CSS so widget custom properties apply
+// Ensure widget CSS variables (plain CSS, no modules)
 (function ensureWidgetsCSS(){
   const id = 'cx-widgets-css';
   if (!document.getElementById(id)) {
@@ -33,25 +33,69 @@ function resizeCanvasToDisplaySize(cvs){
   return false;
 }
 
+// Single-source symbol button factory (listens ONLY on hit-rect)
+function createSymbolButton(svg, { x, y, size = 16, symbol = 'play', onClick }){
+  const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+  g.setAttribute('class','widget button');
+  g.setAttribute('transform',`translate(${x},${y})`);
+  svg.appendChild(g);
+
+  const half = size;
+
+  const bg = document.createElementNS('http://www.w3.org/2000/svg','rect');
+  bg.setAttribute('x',-half); bg.setAttribute('y',-half);
+  bg.setAttribute('width',2*half); bg.setAttribute('height',2*half);
+  bg.setAttribute('class','lit');
+  g.appendChild(bg);
+
+  const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+  path.setAttribute('class','symbol');
+  g.appendChild(path);
+
+  const setSymbol = (name)=>{
+    const fn = iconFor(name);
+    path.setAttribute('d', fn(size*0.75));
+  };
+  setSymbol(symbol);
+
+  // Hit target — attach handler ONLY here, stop propagation to avoid double-fire
+  const hit = document.createElementNS('http://www.w3.org/2000/svg','rect');
+  hit.setAttribute('x',-half); hit.setAttribute('y',-half);
+  hit.setAttribute('width',2*half); hit.setAttribute('height',2*half);
+  hit.setAttribute('fill','transparent');
+  hit.style.cursor='pointer';
+  hit.addEventListener('click', (ev)=>{ ev.stopPropagation(); onClick && onClick(ev, { setSymbol }); });
+  g.appendChild(hit);
+
+  return { group:g, setSymbol };
+}
+
 export class DoublePendulumExplorable {
   constructor(mount, opts = {}) {
     this.o = Object.assign({
-      width: 200,
+      width: 280,
       sceneSize: 200,
       phaseSize: 200,
       showControls: true,
       showPhasePlane: true,
       showTrails: true,
+      showButtons: true,          // <— NEW: if false, hides Play/Pause + Reload toolbar here
       enableClickIK: true,
       ensembleCount: 5,
       spreadSigma: 0.02,
       params: { m1:1, m2:1, L1:1, L2:1, g:9.81 }
     }, opts);
 
+    this.params = { ...this.o.params };
+    this.kPix = 90;
+    this.dt = 1/240;
+    this.running = false;
+
     this.grid = new Grid(mount, { width: this.o.width, gap: 10 });
 
     if (this.o.showControls) this._buildControls(this.grid.slot());
 
+    // Scene (SVG)
     this.sceneBox = this.grid.frame({ w:this.o.sceneSize, h:this.o.sceneSize });
     this.scene = document.createElementNS('http://www.w3.org/2000/svg','svg');
     this.scene.setAttribute('width', this.o.sceneSize);
@@ -62,6 +106,7 @@ export class DoublePendulumExplorable {
     this.scene.style.background='#fff';
     this.sceneBox.appendChild(this.scene);
 
+    // Phase plane (Canvas)
     if (this.o.showPhasePlane){
       this.phaseBox = this.grid.frame({ w:this.o.phaseSize, h:this.o.phaseSize });
       this.phaseCanvas = document.createElement('canvas');
@@ -72,69 +117,79 @@ export class DoublePendulumExplorable {
       this.phaseBox.appendChild(this.phaseCanvas);
     }
 
-    this.params = {...this.o.params};
-    this.kPix = 90;
-    this.dt = 1/240;
-    this.running = false;
-
     this._buildSceneElements();
     this._rebuildEnsemble();
     this._drawPhase();
   }
 
-  /* ---------- Controls (roomy, clear, play is a single toggle) ---------- */
+  /* ---------- Controls (toolbar + sliders) ---------- */
   _buildControls(container){
     const host = document.createElement('div');
     host.className = 'd3-widgets';
     container.appendChild(host);
 
-    // Taller controls surface for breathing room
-    const w = Math.max(this.o.width, 220);
-    const h = 140;
-    const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
-    svg.setAttribute('width', w);
-    svg.setAttribute('height', h);
-    svg.style.display = 'block';
-    host.appendChild(svg);
+    const w = Math.max(this.o.width, 280);
+    const dy = 40;           // slider row spacing
+    const y0 = 24;           // toolbar center Y
+    const y1 = 70;           // first slider center Y
 
-    // Row 1: Play (left) — *toggle only*, no extra icon overlay
-    const playTog = toggle().id('playpause').size(10)
-      .position({ x: 20, y: 28 })
-      .label(null)
-      .value(0)
-      .update(()=>{ playTog.value()?this.play():this.pause(); });
-    svg.appendChild(toggleElement(playTog));
+    // Toolbar (optional)
+    if (this.o.showButtons) {
+      const toolbar = document.createElementNS('http://www.w3.org/2000/svg','svg');
+      toolbar.setAttribute('width', w);
+      toolbar.setAttribute('height', 44);
+      toolbar.style.display='block';
+      host.appendChild(toolbar);
 
-    // Row 1: Trails (right)
-    const trailsT = toggle().id('trails').size(10)
-      .position({ x: w - 20, y: 28 })
-      .label(null)
-      .value(this.o.showTrails?1:0)
-      .update(()=>{
-        this.o.showTrails = !!trailsT.value();
-        for(const path of this.traces ?? []) path.style.display = this.o.showTrails ? '' : 'none';
-        if (!this.o.showTrails) { for (const p of this.ensemble){ p.path.length=0; p.phHead=0; p.phCount=0; } }
-        this._drawPhase();
+      // Play/Pause
+      this._playBtn = createSymbolButton(toolbar, {
+        x: 18, y: y0, size: 16, symbol: this.running ? 'pause' : 'play',
+        onClick: (_ev, api) => {
+          if (this.running) { this.pause(); api.setSymbol('play'); }
+          else { this.play(); api.setSymbol('pause'); }
+        }
       });
-    svg.appendChild(toggleElement(trailsT));
 
-    // Group title text for the two toggles (small, unobtrusive)
-    const label = (txt, x, y) => {
-      const t = document.createElementNS('http://www.w3.org/2000/svg','text');
-      t.textContent = txt;
-      t.setAttribute('x', x);
-      t.setAttribute('y', y);
-      t.setAttribute('font-size', '12');
-      t.setAttribute('fill', 'var(--color-text)');
-      t.setAttribute('text-anchor', 'middle');
-      return t;
-    };
-    svg.appendChild(label('Play/Pause', 20, 46));
-    svg.appendChild(label('Trails', w - 20, 46));
+      // Reload (reseeds & clears trails)
+      createSymbolButton(toolbar, {
+        x: 52, y: y0, size: 16, symbol: 'reload',
+        onClick: () => { this.reset(); }
+      });
 
-    // Row 2: N slider (integer only, with live integer display)
+      // Trails toggle at right
+      const trailsT = toggle().id('trails').size(10)
+        .position({ x: w - 20, y: y0 })
+        .label(null)
+        .value(this.o.showTrails?1:0)
+        .update(()=>{
+          this.o.showTrails = !!trailsT.value();
+          for (const path of this.traces ?? []) path.style.display = this.o.showTrails ? '' : 'none';
+          if (!this.o.showTrails) { for (const p of this.ensemble){ p.path.length=0; p.phHead=0; p.phCount=0; } }
+          this._drawPhase();
+        });
+      toolbar.appendChild(toggleElement(trailsT));
+
+      const tLbl = document.createElementNS('http://www.w3.org/2000/svg','text');
+      tLbl.textContent = 'Trails';
+      tLbl.setAttribute('x', w - 20);
+      tLbl.setAttribute('y', 44);
+      tLbl.setAttribute('font-size','12');
+      tLbl.setAttribute('fill','var(--color-text)');
+      tLbl.setAttribute('text-anchor','middle');
+      toolbar.appendChild(tLbl);
+    }
+
+    // Sliders block
+    const slidersSVG = document.createElementNS('http://www.w3.org/2000/svg','svg');
+    const totalRows = 6;
+    slidersSVG.setAttribute('width', w);
+    slidersSVG.setAttribute('height', y1 + (totalRows-1)*dy + 24);
+    slidersSVG.style.display='block';
+    host.appendChild(slidersSVG);
+
+    // N (integer)
     const countS = slider().id('count').label('N').size(w - 40).girth(8).knob(7)
-      .position({ x: 20, y: 82 })
+      .position({ x: 20, y: y1 + dy*0 })
       .range([1, 50])
       .value(Math.round(this.o.ensembleCount))
       .show(true)
@@ -142,41 +197,65 @@ export class DoublePendulumExplorable {
         const v = Math.round(countS.value());
         if (v !== this.o.ensembleCount) {
           this.o.ensembleCount = v;
-          // update the readout immediately so user never sees 3.8, etc.
           nVal.textContent = String(v);
         }
-        // also snap the slider’s internal value so the handle sits on integers
         if (countS.value() !== v) countS.value(v);
       })
-      .update_end(()=>{
-        // Rebuild ensemble only once user releases drag
-        this._rebuildEnsemble();
-        this.render();
-      });
-    svg.appendChild(sliderElement(countS));
-
-    // Integer readout on the right of the N slider
+      .update_end(()=>{ this._rebuildEnsemble(); this.render(); });
+    slidersSVG.appendChild(sliderElement(countS));
     const nVal = document.createElementNS('http://www.w3.org/2000/svg','text');
     nVal.textContent = String(Math.round(this.o.ensembleCount));
     nVal.setAttribute('x', 20 + (w - 40));
-    nVal.setAttribute('y', 82 - 10);
+    nVal.setAttribute('y', y1 + dy*0 - 12);
     nVal.setAttribute('font-size', '12');
     nVal.setAttribute('fill', 'var(--color-text)');
     nVal.setAttribute('text-anchor', 'end');
-    svg.appendChild(nVal);
+    slidersSVG.appendChild(nVal);
 
-    // Row 3: σ slider (spread)
+    // σ (spread)
     const spreadS = slider().id('spread').label('σ').size(w - 40).girth(8).knob(7)
-      .position({ x: 20, y: 118 })
+      .position({ x: 20, y: y1 + dy*1 })
       .range([0, 0.2])
       .value(this.o.spreadSigma)
       .show(true)
-      .update(()=>{
-        this.o.spreadSigma = spreadS.value();
-        this._reseedEnsemble(true);
-        this.render();
-      });
-    svg.appendChild(sliderElement(spreadS));
+      .update(()=>{ this.o.spreadSigma = spreadS.value(); this._reseedEnsemble(true); this.render(); });
+    slidersSVG.appendChild(sliderElement(spreadS));
+
+    // L1
+    const L1S = slider().id('L1').label('L1').size(w - 40).girth(8).knob(7)
+      .position({ x: 20, y: y1 + dy*2 })
+      .range([0.5, 2.0])
+      .value(this.params.L1)
+      .show(true)
+      .update(()=>{ this.params.L1 = L1S.value(); this.render(); });
+    slidersSVG.appendChild(sliderElement(L1S));
+
+    // L2
+    const L2S = slider().id('L2').label('L2').size(w - 40).girth(8).knob(7)
+      .position({ x: 20, y: y1 + dy*3 })
+      .range([0.5, 2.0])
+      .value(this.params.L2)
+      .show(true)
+      .update(()=>{ this.params.L2 = L2S.value(); this.render(); });
+    slidersSVG.appendChild(sliderElement(L2S));
+
+    // m1
+    const m1S = slider().id('m1').label('m1').size(w - 40).girth(8).knob(7)
+      .position({ x: 20, y: y1 + dy*4 })
+      .range([0.1, 5.0])
+      .value(this.params.m1)
+      .show(true)
+      .update(()=>{ this.params.m1 = m1S.value(); });
+    slidersSVG.appendChild(sliderElement(m1S));
+
+    // m2
+    const m2S = slider().id('m2').label('m2').size(w - 40).girth(8).knob(7)
+      .position({ x: 20, y: y1 + dy*5 })
+      .range([0.1, 5.0])
+      .value(this.params.m2)
+      .show(true)
+      .update(()=>{ this.params.m2 = m2S.value(); });
+    slidersSVG.appendChild(sliderElement(m2S));
   }
 
   /* ---------- Scene ---------- */
@@ -249,6 +328,11 @@ export class DoublePendulumExplorable {
     }
   }
 
+  reset(){
+    this._reseedEnsemble(true);
+    this.render();
+  }
+
   /* ---------- Physics ---------- */
   _step(){
     for(const p of this.ensemble){
@@ -307,7 +391,7 @@ export class DoublePendulumExplorable {
     this._drawPhase();
   }
 
-  /* ---------- Phase draw (CSS-pixel correct, centered) ---------- */
+  /* ---------- Phase plane draw (centered, with θ₁ / θ₂ labels) ---------- */
   _drawPhase(){
     if(!this.phaseCanvas) return;
     const cvs=this.phaseCanvas, ctx=cvs.getContext('2d');
@@ -321,15 +405,37 @@ export class DoublePendulumExplorable {
 
     ctx.fillStyle='#fff'; ctx.fillRect(0,0,cssW,cssH);
 
+    // inner frame & mapping
     const m=18, x0=m, y0=m, x1=cssW-m, y1=cssH-m;
     const W=x1-x0, H=y1-y0;
     const A0=-Math.PI, A1=Math.PI, B0=-Math.PI, B1=Math.PI;
     const mapX=th=> x0 + ((th-A0)/(A1-A0))*W;
     const mapY=ph=> y1 - ((ph-B0)/(B1-B0))*H;
 
+    // axes
     ctx.strokeStyle='#777'; ctx.lineWidth=1;
     ctx.beginPath(); ctx.moveTo(mapX(0), y0); ctx.lineTo(mapX(0), y1); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(x0, mapY(0)); ctx.lineTo(x1, mapY(0)); ctx.stroke();
+
+    // ticks
+    ctx.fillStyle='#666'; ctx.font='11px ui-sans-serif, system-ui, -apple-system';
+    const ticks=[-Math.PI,-Math.PI/2,0,Math.PI/2,Math.PI];
+    for(const t of ticks){
+      const xx=mapX(t);
+      ctx.beginPath(); ctx.moveTo(xx, mapY(0)-3); ctx.lineTo(xx, mapY(0)+3); ctx.stroke();
+      const yy=mapY(t);
+      ctx.beginPath(); ctx.moveTo(mapX(0)-3, yy); ctx.lineTo(mapX(0)+3, yy); ctx.stroke();
+    }
+    // axis labels θ₁ (x) and θ₂ (y)
+    ctx.fillStyle='#333'; ctx.font='12px ui-sans-serif, system-ui, -apple-system';
+    ctx.textAlign='center'; ctx.textBaseline='top';
+    ctx.fillText('θ₁', (x0+x1)/2, y1 + 6);
+    ctx.save();
+    ctx.translate(x0 - 10, (y0+y1)/2);
+    ctx.rotate(-Math.PI/2);
+    ctx.textAlign='center'; ctx.textBaseline='bottom';
+    ctx.fillText('θ₂', 0, 0);
+    ctx.restore();
 
     if(!this.o.showTrails) return;
 
@@ -365,21 +471,18 @@ export class DoublePendulumExplorable {
           return;
         }
 
-        const cx=sx+tHit*dx, cy=sy*tHit+ (1-tHit)*sy + tHit*dy; // cy = sy + tHit*dy
-        // correct cy calc:
-        const cyFix = sy + tHit*dy;
-
+        const cx=sx+tHit*dx, cy=sy+tHit*dy;
         ctx.beginPath();
         ctx.moveTo(mapX(Math.max(A0,Math.min(A1,sx))), mapY(Math.max(B0,Math.min(B1,sy))));
-        ctx.lineTo(mapX(Math.max(A0,Math.min(A1, sx + tHit*dx))), mapY(Math.max(B0,Math.min(B1, cyFix))));
+        ctx.lineTo(mapX(Math.max(A0,Math.min(A1,cx))), mapY(Math.max(B0,Math.min(B1,cy))));
         ctx.strokeStyle=color; ctx.lineWidth=1; ctx.stroke();
 
         if(hit.startsWith('x')){
           const shift=(hit==='x+'?-TAU:TAU);
-          sx=sx + tHit*dx + shift;  sy=cyFix;   ex=ex + shift;  ey=ey;
+          sx=cx+shift;  sy=cy;   ex=ex+shift;  ey=ey;
         } else {
           const shift=(hit==='y+'?-TAU:TAU);
-          sx=sx + tHit*dx;          sy=cyFix + shift; ex=ex;        ey=ey + shift;
+          sx=cx;        sy=cy+shift; ex=ex;        ey=ey+shift;
         }
       }
     };

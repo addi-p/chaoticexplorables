@@ -1,12 +1,12 @@
 /* 1) Light-mode custom-properties on the real `.d3-widgets` wrapper */
 .d3-widgets {
   --color-border:        rgb(150, 150, 150);
-  --color-background:    #ccc;
+  --color-background:    #cccccc00;
   --color-text:          #000;
   --color-symbol:        #fff;
   --color-lit:           #eee;
   --color-lit-symbol:    #bbb;
-  --color-selected:      #000;
+  --color-selected:      #3e3e3e;
   --color-handle:        #fff;
 }
 
@@ -14,7 +14,7 @@
 @media (prefers-color-scheme: dark) {
   .d3-widgets {
     --color-border:        rgb(105, 105, 105);
-    --color-background:    #333;
+    --color-background:    #33333300;
     --color-text:          #bcbcbc;
     --color-symbol:        #000;
     --color-lit:           #111;
@@ -27,7 +27,7 @@
 /* 3) Manual dark-mode override (fires last) */
 .d3-widgets.dark-mode {
   --color-border:        rgb(105, 105, 105);
-  --color-background:    #333;
+  --color-background:    #33333300;
   --color-text:          #bcbcbc;
   --color-symbol:        #000;
   --color-lit:           #111;

@@ -2,9 +2,9 @@
 
 .explorable-card {
   --xc-border: #c9c9c9;
-  --xc-text: #111;
+  --xc-text: #11111100;
   --xc-muted: #666;
-  --xc-bg: #fff;
+  --xc-bg: #ffffff00;
 
   display: grid;
   grid-template-rows: auto auto 1fr;
@@ -23,7 +23,7 @@
     --xc-border: #5a5a5a;
     --xc-text: #d7d7d7;
     --xc-muted: #9a9a9a;
-    --xc-bg: #121212;
+    --xc-bg: #ffffff00;
   }
 }
 
@@ -73,6 +73,6 @@
 }
 @media (prefers-color-scheme: dark) {
   .explorable-card__btn[aria-pressed="true"] {
-    background: #1f1f1f;
+    background: #ffffff00;
   }
 }
