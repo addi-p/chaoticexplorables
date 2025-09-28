@@ -1,0 +1,46 @@
+/* Clean, classic look — white background, dark text, thin borders, NO rounding. */
+* { box-sizing: border-box; }
+
+:root{
+  --cx-bg: #ffffff;
+  --cx-text: #111;
+  --cx-muted: #666;
+  --cx-border: #c9c9c9;
+  --cx-panel: #ffffff;
+  --cx-gap: 10px;
+  --cx-font: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+}
+
+.cx-root{
+  background: var(--cx-bg);
+  color: var(--cx-text);
+  font-family: var(--cx-font);
+}
+
+.cx-wrap{
+  display: grid;
+  gap: var(--cx-gap);
+  width: max-content; /* keep everything snug */
+}
+
+/* Square frames, no rounding, consistent borders */
+.cx-svg{
+  display: block;
+  background: #fff !important;
+  border: 1px solid var(--cx-border) !important;
+  border-radius: 0 !important;
+}
+
+/* Controls container (plain, not glossy) */
+.cx-panel{
+  background: var(--cx-panel);
+  border: 1px solid var(--cx-border);
+  padding: 6px;
+}
+
+/* Stack the two 200×200 views */
+.cx-grid{
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--cx-gap);
+}

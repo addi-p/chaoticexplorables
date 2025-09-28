@@ -13,9 +13,11 @@ export function button({ text, iconPath, onclick }) {
   const b = document.createElement('button'); b.className = 'cx-btn'; b.addEventListener('click', onclick);
   if (iconPath) {
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('width', '18'); svg.setAttribute('height', '18');
-    svg.innerHTML = `<path d="${iconPath}"/>`; b.appendChild(svg);
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('width', '18'); svg.setAttribute('height', '18');
+    svg.innerHTML = `<path d="${iconPath}"/>`;
+    b.prepend(svg);
   }
-  b.appendChild(document.createTextNode(text));
+  b.append(text);
   return b;
 }
