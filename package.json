@@ -1,0 +1,13 @@
+{
+  "name": "chaoticexplorables",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*/*"
+  ],
+  "scripts": {
+    "dev": "npm -w apps/docs run dev",
+    "build": "npm -w apps/docs run build",
+    "preview": "npm -w apps/docs run preview"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "@chaoticexplorables/double-pendulum",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "src/index.js",
+  "dependencies": {
+    "@chaoticexplorables/core": "0.0.1"
+  },
+  "license": "MIT"
+}
