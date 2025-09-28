@@ -5,8 +5,8 @@
   --cx-bg: #ffffff00;
   --cx-text: #111;
   --cx-muted: #666;
-  --cx-border: #c9c9c9;
-  --cx-panel: #ffffff;
+  --cx-border: #ffffff;
+  --cx-panel: #ffffff00;
   --cx-gap: 10px;
   --cx-font: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
 }
