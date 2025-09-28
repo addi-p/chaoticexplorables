@@ -1,5 +1,4 @@
 // packages/double-pendulum/src/index.js
-// Full explorable: Play/Pause + Reload (optional), Trails toggle,
 // sliders: N (int), σ, L1, L2, m1, m2; scene + phase plane with θ₁ / θ₂ labels.
 
 import slider from '../../widgets/src/slider.js';
@@ -103,7 +102,7 @@ export class DoublePendulumExplorable {
     this.scene.setAttribute('viewBox','-220 -220 440 440');
     this.scene.setAttribute('preserveAspectRatio','xMidYMid meet');
     this.scene.style.display='block';
-    this.scene.style.background='#ffffff05';
+    this.scene.style.background='#19191905';
     this.sceneBox.appendChild(this.scene);
 
     // Phase plane (Canvas)
@@ -113,7 +112,7 @@ export class DoublePendulumExplorable {
       this.phaseCanvas.style.width = `${this.o.phaseSize}px`;
       this.phaseCanvas.style.height = `${this.o.phaseSize}px`;
       this.phaseCanvas.style.display='block';
-      this.phaseCanvas.style.background='#ffffff05';
+      this.phaseCanvas.style.background='#19191905';
       this.phaseBox.appendChild(this.phaseCanvas);
     }
 
@@ -292,11 +291,11 @@ export class DoublePendulumExplorable {
       const r1=document.createElementNS('http://www.w3.org/2000/svg','line');
       const r2=document.createElementNS('http://www.w3.org/2000/svg','line');
       r1.setAttribute('stroke',color); r2.setAttribute('stroke',color);
-      r1.setAttribute('stroke-width','2.25'); r2.setAttribute('stroke-width','2.25');
+      r1.setAttribute('stroke-width',3.); r2.setAttribute('stroke-width',3.);
 
       const b1=document.createElementNS('http://www.w3.org/2000/svg','circle');
       const b2=document.createElementNS('http://www.w3.org/2000/svg','circle');
-      b1.setAttribute('r','2.5'); b2.setAttribute('r','2.5');
+      b1.setAttribute('r',3.); b2.setAttribute('r',3.);
       b1.setAttribute('fill',color); b2.setAttribute('fill',color);
 
       g.append(r1,r2,b1,b2);
