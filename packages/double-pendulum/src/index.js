@@ -203,7 +203,7 @@ export class DoublePendulumExplorable {
       .update_end(()=>{ this._rebuildEnsemble(); this.render(); });
     slidersSVG.appendChild(sliderElement(countS));
     const nVal = document.createElementNS('http://www.w3.org/2000/svg','text');
-    nVal.textContent = String(Math.round(this.o.ensembleCount));
+    nVal.textContent = String(Math.round(this.o.ensembleCount,1)); // check if right otherwise remove ,1
     nVal.setAttribute('x', 20 + (w - 40));
     nVal.setAttribute('y', y1 + dy*0 - 12);
     nVal.setAttribute('font-size', '12');
@@ -291,18 +291,18 @@ export class DoublePendulumExplorable {
       const r1=document.createElementNS('http://www.w3.org/2000/svg','line');
       const r2=document.createElementNS('http://www.w3.org/2000/svg','line');
       r1.setAttribute('stroke',color); r2.setAttribute('stroke',color);
-      r1.setAttribute('stroke-width','2.25'); r2.setAttribute('stroke-width','2.25');
+      r1.setAttribute('stroke-width','3.0'); r2.setAttribute('stroke-width','3.0');
 
       const b1=document.createElementNS('http://www.w3.org/2000/svg','circle');
       const b2=document.createElementNS('http://www.w3.org/2000/svg','circle');
-      b1.setAttribute('r','2.5'); b2.setAttribute('r','2.5');
+      b1.setAttribute('r','5.5'); b2.setAttribute('r','5.5');
       b1.setAttribute('fill',color); b2.setAttribute('fill',color);
 
       g.append(r1,r2,b1,b2);
 
       const trail=document.createElementNS('http://www.w3.org/2000/svg','path');
       trail.setAttribute('fill','none'); trail.setAttribute('stroke',color);
-      trail.setAttribute('stroke-opacity','0.35'); trail.setAttribute('stroke-width','0.9');
+      trail.setAttribute('stroke-opacity','0.35'); trail.setAttribute('stroke-width','3.0');
       if(!this.o.showTrails) trail.style.display='none';
       this.scene.appendChild(trail);
 
@@ -412,7 +412,7 @@ export class DoublePendulumExplorable {
     const mapY=ph=> y1 - ((ph-B0)/(B1-B0))*H;
 
     // axes
-    ctx.strokeStyle='#777'; ctx.lineWidth=4;
+    ctx.strokeStyle='#777'; ctx.lineWidth=3;
     ctx.beginPath(); ctx.moveTo(mapX(0), y0); ctx.lineTo(mapX(0), y1); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(x0, mapY(0)); ctx.lineTo(x1, mapY(0)); ctx.stroke();
 
@@ -450,7 +450,7 @@ export class DoublePendulumExplorable {
         const endInside  =(ex>=A0&&ex<=A1&&ey>=B0&&ey<=B1);
         if(startInside&&endInside){
           ctx.beginPath(); ctx.moveTo(mapX(sx), mapY(sy)); ctx.lineTo(mapX(ex), mapY(ey));
-          ctx.strokeStyle=color; ctx.lineWidth=4; ctx.stroke(); return;
+          ctx.strokeStyle=color; ctx.lineWidth=3; ctx.stroke(); return;
         }
         const dx=ex-sx, dy=ey-sy;
         if(Math.abs(dx)<1e-12 && Math.abs(dy)<1e-12) return;
@@ -474,7 +474,7 @@ export class DoublePendulumExplorable {
         ctx.beginPath();
         ctx.moveTo(mapX(Math.max(A0,Math.min(A1,sx))), mapY(Math.max(B0,Math.min(B1,sy))));
         ctx.lineTo(mapX(Math.max(A0,Math.min(A1,cx))), mapY(Math.max(B0,Math.min(B1,cy))));
-        ctx.strokeStyle=color; ctx.lineWidth=4; ctx.stroke();
+        ctx.strokeStyle=color; ctx.lineWidth=3; ctx.stroke();
 
         if(hit.startsWith('x')){
           const shift=(hit==='x+'?-TAU:TAU);
