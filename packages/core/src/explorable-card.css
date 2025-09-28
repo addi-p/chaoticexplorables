@@ -1,9 +1,9 @@
 /* Minimal, neutral, no rounded corners. Works in light/dark via system prefs. */
 
 .explorable-card {
-  --xc-border: #c9c9c9;
+  --xc-border: #c9c9c900;
   --xc-text: #11111100;
-  --xc-muted: #666;
+  --xc-muted: #66666600;
   --xc-bg: #ffffff00;
 
   display: grid;
@@ -20,9 +20,9 @@
 
 @media (prefers-color-scheme: dark) {
   .explorable-card {
-    --xc-border: #5a5a5a;
-    --xc-text: #d7d7d7;
-    --xc-muted: #9a9a9a;
+    --xc-border: #5a5a5a00;
+    --xc-text: #d7d7d700;
+    --xc-muted: #9a9a9a00;
     --xc-bg: #ffffff00;
   }
 }
@@ -69,7 +69,7 @@
   cursor: pointer;
 }
 .explorable-card__btn[aria-pressed="true"] {
-  background: #e9e9e9;
+  background: #e9e9e900;
 }
 @media (prefers-color-scheme: dark) {
   .explorable-card__btn[aria-pressed="true"] {
