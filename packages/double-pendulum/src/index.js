@@ -103,7 +103,7 @@ export class DoublePendulumExplorable {
     this.scene.setAttribute('viewBox','-220 -220 440 440');
     this.scene.setAttribute('preserveAspectRatio','xMidYMid meet');
     this.scene.style.display='block';
-    this.scene.style.background='#fff';
+    this.scene.style.background='#ffffff05';
     this.sceneBox.appendChild(this.scene);
 
     // Phase plane (Canvas)
@@ -113,7 +113,7 @@ export class DoublePendulumExplorable {
       this.phaseCanvas.style.width = `${this.o.phaseSize}px`;
       this.phaseCanvas.style.height = `${this.o.phaseSize}px`;
       this.phaseCanvas.style.display='block';
-      this.phaseCanvas.style.background='#fff';
+      this.phaseCanvas.style.background='#ffffff05';
       this.phaseBox.appendChild(this.phaseCanvas);
     }
 
@@ -292,7 +292,7 @@ export class DoublePendulumExplorable {
       const r1=document.createElementNS('http://www.w3.org/2000/svg','line');
       const r2=document.createElementNS('http://www.w3.org/2000/svg','line');
       r1.setAttribute('stroke',color); r2.setAttribute('stroke',color);
-      r1.setAttribute('stroke-width','1.25'); r2.setAttribute('stroke-width','1.25');
+      r1.setAttribute('stroke-width','2.25'); r2.setAttribute('stroke-width','2.25');
 
       const b1=document.createElementNS('http://www.w3.org/2000/svg','circle');
       const b2=document.createElementNS('http://www.w3.org/2000/svg','circle');
@@ -413,7 +413,7 @@ export class DoublePendulumExplorable {
     const mapY=ph=> y1 - ((ph-B0)/(B1-B0))*H;
 
     // axes
-    ctx.strokeStyle='#777'; ctx.lineWidth=1;
+    ctx.strokeStyle='#777'; ctx.lineWidth=2;
     ctx.beginPath(); ctx.moveTo(mapX(0), y0); ctx.lineTo(mapX(0), y1); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(x0, mapY(0)); ctx.lineTo(x1, mapY(0)); ctx.stroke();
 
