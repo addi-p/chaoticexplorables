@@ -1,14 +1,20 @@
 // packages/double-pendulum/src/index.js
-// sliders: N (int), σ, L1, L2, m1, m2; scene + phase plane with θ₁ / θ₂ labels.
+// Double pendulum explorable with transparent backgrounds and thicker lines.
+// - Symbol buttons: Play/Pause + Reload
+// - Toggle: Trails
+// - Sliders: N (int), σ, L1, L2, m1, m2
+// - 200x200 scene (SVG) + 200x200 phase plane (Canvas w/ alpha)
+// - θ₁ (x) and θ₂ (y) labels on phase plane
+// - Options: { transparent = true, strokeScale = 1.0 }
 
 import slider from '../../widgets/src/slider.js';
 import sliderElement from '../../widgets/src/sliderElement.js';
 import toggle from '../../widgets/src/toggle.js';
 import toggleElement from '../../widgets/src/toggleElement.js';
 import iconFor from '../../widgets/src/button-symbols.js';
-import { Grid } from '../../widgets/src/gridd.js';
+import { Grid } from '../../widgets/src/grid.js';
 
-// Ensure widget CSS variables (plain CSS, no modules)
+// Ensure the plain (non-modules) widget CSS is present so theme vars apply
 (function ensureWidgetsCSS(){
   const id = 'cx-widgets-css';
   if (!document.getElementById(id)) {
@@ -78,11 +84,14 @@ export class DoublePendulumExplorable {
       showControls: true,
       showPhasePlane: true,
       showTrails: true,
-      showButtons: true,          // <— NEW: if false, hides Play/Pause + Reload toolbar here
+      showButtons: true,
       enableClickIK: true,
       ensembleCount: 5,
       spreadSigma: 0.02,
-      params: { m1:1, m2:1, L1:1, L2:1, g:9.81 }
+      params: { m1:1, m2:1, L1:1, L2:1, g:9.81 },
+      // NEW:
+      transparent: true,     // true => SVG/canvas are transparent
+      strokeScale: 1.0       // multiply all strokes/radii
     }, opts);
 
     this.params = { ...this.o.params };
@@ -90,6 +99,7 @@ export class DoublePendulumExplorable {
     this.dt = 1/240;
     this.running = false;
 
+    // Layout grid: controls on top, then two frames stacked
     this.grid = new Grid(mount, { width: this.o.width, gap: 10 });
 
     if (this.o.showControls) this._buildControls(this.grid.slot());
@@ -102,7 +112,9 @@ export class DoublePendulumExplorable {
     this.scene.setAttribute('viewBox','-220 -220 440 440');
     this.scene.setAttribute('preserveAspectRatio','xMidYMid meet');
     this.scene.style.display='block';
-    this.scene.style.background='transparent';
+    this.scene.style.background = this.o.transparent ? 'transparent' : '#fff';
+    // Just in case any global CSS sets backgrounds:
+    this.scene.style.setProperty('background-color', this.o.transparent ? 'transparent' : '#fff', 'important');
     this.sceneBox.appendChild(this.scene);
 
     // Phase plane (Canvas)
@@ -112,8 +124,12 @@ export class DoublePendulumExplorable {
       this.phaseCanvas.style.width = `${this.o.phaseSize}px`;
       this.phaseCanvas.style.height = `${this.o.phaseSize}px`;
       this.phaseCanvas.style.display='block';
-      this.phaseCanvas.style.background='transparent';
+      this.phaseCanvas.style.background = this.o.transparent ? 'transparent' : '#fff';
+      this.phaseCanvas.style.setProperty('background-color', this.o.transparent ? 'transparent' : '#fff', 'important');
       this.phaseBox.appendChild(this.phaseCanvas);
+
+      // Get a 2D context that preserves alpha
+      this.phaseCtx = this.phaseCanvas.getContext('2d', { alpha: true });
     }
 
     this._buildSceneElements();
@@ -203,7 +219,7 @@ export class DoublePendulumExplorable {
       .update_end(()=>{ this._rebuildEnsemble(); this.render(); });
     slidersSVG.appendChild(sliderElement(countS));
     const nVal = document.createElementNS('http://www.w3.org/2000/svg','text');
-    nVal.textContent = String(Math.round(this.o.ensembleCount,1)); // check if right otherwise remove ,1
+    nVal.textContent = String(Math.round(this.o.ensembleCount));
     nVal.setAttribute('x', 20 + (w - 40));
     nVal.setAttribute('y', y1 + dy*0 - 12);
     nVal.setAttribute('font-size', '12');
@@ -282,6 +298,10 @@ export class DoublePendulumExplorable {
     this.ensemble=[]; this.rods=[]; this.bobs=[]; this.traces=[];
     const N=this.o.ensembleCount;
 
+    const rodW   = 3.5 * this.o.strokeScale;  // thicker rods
+    const bobR   = 3.5 * this.o.strokeScale;  // bigger bobs
+    const trailW = 2.0 * this.o.strokeScale;  // thicker trails
+
     for(let i=0;i<N;i++){
       const color=`hsl(${(i*137.508)%360} 70% 35%)`;
 
@@ -291,18 +311,20 @@ export class DoublePendulumExplorable {
       const r1=document.createElementNS('http://www.w3.org/2000/svg','line');
       const r2=document.createElementNS('http://www.w3.org/2000/svg','line');
       r1.setAttribute('stroke',color); r2.setAttribute('stroke',color);
-      r1.setAttribute('stroke-width','3.0'); r2.setAttribute('stroke-width','3.0');
+      r1.setAttribute('stroke-width', String(rodW));
+      r2.setAttribute('stroke-width', String(rodW));
 
       const b1=document.createElementNS('http://www.w3.org/2000/svg','circle');
       const b2=document.createElementNS('http://www.w3.org/2000/svg','circle');
-      b1.setAttribute('r','5.5'); b2.setAttribute('r','5.5');
+      b1.setAttribute('r', String(bobR)); b2.setAttribute('r', String(bobR));
       b1.setAttribute('fill',color); b2.setAttribute('fill',color);
 
       g.append(r1,r2,b1,b2);
 
       const trail=document.createElementNS('http://www.w3.org/2000/svg','path');
       trail.setAttribute('fill','none'); trail.setAttribute('stroke',color);
-      trail.setAttribute('stroke-opacity','0.35'); trail.setAttribute('stroke-width','3.0');
+      trail.setAttribute('stroke-opacity','0.45'); // a tad stronger opacity
+      trail.setAttribute('stroke-width', String(trailW));
       if(!this.o.showTrails) trail.style.display='none';
       this.scene.appendChild(trail);
 
@@ -393,7 +415,7 @@ export class DoublePendulumExplorable {
   /* ---------- Phase plane draw (centered, with θ₁ / θ₂ labels) ---------- */
   _drawPhase(){
     if(!this.phaseCanvas) return;
-    const cvs=this.phaseCanvas, ctx=cvs.getContext('2d');
+    const cvs=this.phaseCanvas, ctx=this.phaseCtx || this.phaseCanvas.getContext('2d', { alpha:true });
 
     const cssW=cvs.clientWidth||parseFloat(getComputedStyle(cvs).width)||this.o.phaseSize;
     const cssH=cvs.clientHeight||parseFloat(getComputedStyle(cvs).height)||this.o.phaseSize;
@@ -402,7 +424,8 @@ export class DoublePendulumExplorable {
     const scaleX=cvs.width/cssW, scaleY=cvs.height/cssH;
     ctx.setTransform(scaleX,0,0,scaleY,0,0);
 
-    ctx.fillStyle='#ffffff01'; ctx.fillRect(0,0,cssW,cssH);
+    // Clear to transparent (no white paint)
+    ctx.clearRect(0,0,cssW,cssH);
 
     // inner frame & mapping
     const m=18, x0=m, y0=m, x1=cssW-m, y1=cssH-m;
@@ -412,7 +435,8 @@ export class DoublePendulumExplorable {
     const mapY=ph=> y1 - ((ph-B0)/(B1-B0))*H;
 
     // axes
-    ctx.strokeStyle='#777'; ctx.lineWidth=3;
+    ctx.strokeStyle='#777';
+    ctx.lineWidth = 1.25 * this.o.strokeScale;
     ctx.beginPath(); ctx.moveTo(mapX(0), y0); ctx.lineTo(mapX(0), y1); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(x0, mapY(0)); ctx.lineTo(x1, mapY(0)); ctx.stroke();
 
@@ -441,6 +465,8 @@ export class DoublePendulumExplorable {
     const wrapA=a=>{ a=(a+Math.PI)%TAU; if(a<0)a+=TAU; return a-Math.PI; };
     const unwrap=d=> (d>Math.PI? d-TAU : (d<=-Math.PI? d+TAU : d));
 
+    const segW = 2.0 * this.o.strokeScale; // thicker trajectories
+
     const drawWrappedSegment=(a0,b0,a1,b1,color)=>{
       let sx=wrapA(a0), sy=wrapA(b0);
       let ex=sx+unwrap(a1-a0);
@@ -450,7 +476,7 @@ export class DoublePendulumExplorable {
         const endInside  =(ex>=A0&&ex<=A1&&ey>=B0&&ey<=B1);
         if(startInside&&endInside){
           ctx.beginPath(); ctx.moveTo(mapX(sx), mapY(sy)); ctx.lineTo(mapX(ex), mapY(ey));
-          ctx.strokeStyle=color; ctx.lineWidth=3; ctx.stroke(); return;
+          ctx.strokeStyle=color; ctx.lineWidth = segW; ctx.stroke(); return;
         }
         const dx=ex-sx, dy=ey-sy;
         if(Math.abs(dx)<1e-12 && Math.abs(dy)<1e-12) return;
@@ -474,7 +500,7 @@ export class DoublePendulumExplorable {
         ctx.beginPath();
         ctx.moveTo(mapX(Math.max(A0,Math.min(A1,sx))), mapY(Math.max(B0,Math.min(B1,sy))));
         ctx.lineTo(mapX(Math.max(A0,Math.min(A1,cx))), mapY(Math.max(B0,Math.min(B1,cy))));
-        ctx.strokeStyle=color; ctx.lineWidth=3; ctx.stroke();
+        ctx.strokeStyle=color; ctx.lineWidth = segW; ctx.stroke();
 
         if(hit.startsWith('x')){
           const shift=(hit==='x+'?-TAU:TAU);
@@ -492,7 +518,7 @@ export class DoublePendulumExplorable {
       const C=p.phT1.length, n=p.phCount;
       if(n<2) continue;
       const hue=Math.round(360*(N<=1?0.5:i/(N-1)));
-      const col=`hsla(${hue} 70% 35% / 0.6)`;
+      const col=`hsla(${hue} 70% 35% / 0.7)`;
       let idx=(p.phHead-n+C)%C;
       let aPrev=p.phT1[idx], bPrev=p.phT2[idx];
       for(let k=1;k<n;k++){
