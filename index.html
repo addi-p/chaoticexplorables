@@ -8,11 +8,19 @@
     ExplorableClass: DoublePendulumExplorable,
     title: 'Double Pendulum',
     subtitle: '',
-    width: 280,
-    actions: { play: true, reset: true },
+    width: 280, // inner rail width for the card
     explorable: {
-      width: 280, sceneSize: 280, phaseSize: 280, showControls: true, showPhasePlane: true, showTrails: true
+      width: 280,
+      sceneSize: 280,
+      phaseSize: 280,
+      showControls: true,
+      showPhasePlane: true,
+      showTrails: true,
+      showButtons: true,   // let the explorable render its toolbar
+      transparent: true    // background transparent (SVG + canvas)
     }
   });
-  card.play(); // optional
+
+  // optional autoplay
+  card.play();
 </script>

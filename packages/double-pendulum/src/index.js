@@ -12,7 +12,7 @@ import sliderElement from '../../widgets/src/sliderElement.js';
 import toggle from '../../widgets/src/toggle.js';
 import toggleElement from '../../widgets/src/toggleElement.js';
 import iconFor from '../../widgets/src/button-symbols.js';
-import { Grid } from '../../widgets/src/grid.js';
+import { Grid } from '../../widgets/src/gridd.js';
 
 // Ensure the plain (non-modules) widget CSS is present so theme vars apply
 (function ensureWidgetsCSS(){
