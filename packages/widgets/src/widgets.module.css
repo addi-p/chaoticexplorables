@@ -7,7 +7,7 @@
   --color-lit:           #eee;
   --color-lit-symbol:    #bbb;
   --color-selected:      #000;
-  --color-handle:        #ffffff00;
+  --color-handle:        #9f9f9ff4;
 }
 
 /* 2) System-dark overrides */
@@ -20,7 +20,7 @@
   --color-lit:           #111;
   --color-lit-symbol:    #444;
   --color-selected:      #dbdbdb;
-  --color-handle:        #9f9f9f00;
+  --color-handle:        #9f9f9ff4;
 }
 }
 
@@ -33,7 +33,7 @@
   --color-lit:           #111;
   --color-lit-symbol:    #444;
   --color-selected:      #dbdbdb;
-  --color-handle:        #9f9f9f00;
+  --color-handle:        #9f9f9ff4;
 }
 
 /* 4) Local (scoped) widget styles — these get hashed by CSS-Modules */
