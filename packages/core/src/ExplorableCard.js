@@ -1,6 +1,6 @@
 // packages/core/src/ExplorableCard.js
-// Minimal card: header + slot. No buttons here.
-// Your explorable (e.g., DoublePendulumExplorable) contains its own toolbar.
+// Card that fits the column width, with an optional centered inner rail.
+// No buttons; your explorable owns its toolbar.
 
 import { ExplorableCardCSS } from './ensure-css.js';
 
@@ -10,28 +10,31 @@ export class ExplorableCard {
       ExplorableClass,
       title = 'Explorable',
       subtitle = '',
-      width = 260,
-      // keep "explorable" passthrough for options
+      // Instead of forcing inline width on the outer card, we pass a "rail" width
+      width = 260,           // desired inner content width (px)
+      fitColumn = true,      // <— NEW: outer card stretches to container width
       explorable = {},
     } = cfg || {};
 
     if (!ExplorableClass) throw new Error('ExplorableCard: missing ExplorableClass');
 
-    // Resolve mount
     this.root = typeof mount === 'string' ? document.querySelector(mount) : mount;
     if (!this.root) throw new Error('ExplorableCard: mount not found');
 
-    // Ensure base CSS (neutral chrome, no rounded corners)
     ExplorableCardCSS.ensure();
 
-    // Card shell
+    // Outer card spans the column; inner rail is centered & sized by CSS var
     const card = document.createElement('section');
     card.className = 'explorable-card';
-    card.style.width = `${width}px`;
+    if (fitColumn) {
+      card.style.width = '100%';
+    }
+    // supply rail width as a CSS variable the stylesheet will use
+    card.style.setProperty('--card-rail-width', `${width}px`);
     this.root.appendChild(card);
     this.card = card;
 
-    // Header
+    // Header (optional chrome)
     const header = document.createElement('div');
     header.className = 'explorable-card__header';
     card.appendChild(header);
@@ -48,20 +51,20 @@ export class ExplorableCard {
       header.appendChild(sub);
     }
 
-    // Slot for the explorable itself
+    // Inner rail: fixed pixel width, centered
+    const rail = document.createElement('div');
+    rail.className = 'explorable-card__rail';
+    card.appendChild(rail);
+
     const slot = document.createElement('div');
     slot.className = 'explorable-card__slot';
-    card.appendChild(slot);
+    rail.appendChild(slot);
 
-    const mountDiv = document.createElement('div');
-    slot.appendChild(mountDiv);
-
-    // Instantiate explorable (let it manage its own toolbar/controls/canvases)
+    // Instantiate explorable into the slot; pass width as a hint
     const exOpts = Object.assign({ width }, explorable || {});
-    this.exp = new ExplorableClass(mountDiv, exOpts);
+    this.exp = new ExplorableClass(slot, exOpts);
   }
 
-  // Pass-through helpers in case the page wants to control it
   play()   { this.exp?.play?.(); }
   pause()  { this.exp?.pause?.(); }
   destroy(){ try { this.pause(); } catch {} this.card?.remove(); }

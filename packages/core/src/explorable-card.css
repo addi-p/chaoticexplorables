@@ -76,3 +76,29 @@
     background: #ffffff00;
   }
 }
+
+/* packages/core/src/explorable-card.css */
+
+.explorable-card {
+  /* OUTER: spans the column set by your Figure/ExplorableFigure */
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.explorable-card__header {
+  /* keep whatever typography you want; nothing layout-critical here */
+  margin: 0 0 0.5rem 0;
+}
+
+.explorable-card__rail {
+  /* INNER: centered, pixel width controlled by --card-rail-width */
+  width: var(--card-rail-width, 260px);
+  max-width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.explorable-card__slot {
+  /* let the explorable fill the rail width */
+  width: 100%;
+}
