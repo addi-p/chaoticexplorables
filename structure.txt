@@ -1,0 +1,41 @@
+chaoticexplorables/
+├── packages/
+│   ├── core/                     # shared UI + utilities
+│   │   ├── src/
+│   │   │   ├── ExplorableBase.js
+│   │   │   ├── ui.js             # sliders, buttons, dropdowns
+│   │   │   ├── svg.js            # tiny SVG helpers
+│   │   │   ├── utils.js          # clamp, moduloAngle, palettes, etc.
+│   │   │   ├── themes.css        # light/dark + layout primitives
+│   │   │   └── index.js          # re-exports
+│   │   └── package.json
+│   ├── double-pendulum/          # your DP module
+│   │   ├── src/
+│   │   │   ├── physics.js        # RK4 + equations
+│   │   │   ├── view.js           # rods/bobs/traces/phase plane
+│   │   │   └── index.js          # exports class DoublePendulumExplorable
+│   │   └── package.json
+│   ├── kuramoto/                 # another explorable (example)
+│   │   ├── src/
+│   │   │   ├── model.js
+│   │   │   ├── view.js
+│   │   │   └── index.js
+│   │   └── package.json
+│   └── icons/                    # your uploaded icons
+│       ├── src/
+│       │   ├── button-symbols.js
+│       │   └── ...               # play, pause, forward, etc.
+│       └── package.json
+│
+├── apps/
+│   └── docs/                     # site (Astro or Vite) to showcase
+│       ├── src/
+│       │   ├── pages/
+│       │   │   ├── index.html    # gallery
+│       │   │   └── explorable.html  # generic loader by ?slug=
+│       │   └── loader.js         # dynamic import by slug
+│       ├── public/
+│       └── package.json
+│
+├── package.json                  # workspaces
+└── README.md
