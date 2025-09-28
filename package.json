@@ -2,8 +2,7 @@
   "name": "chaoticexplorables",
   "private": true,
   "workspaces": [
-    "packages/*",
-    "apps/*/*"
+    "packages/*"
   ],
   "scripts": {
     "dev": "npm -w apps/docs run dev",
