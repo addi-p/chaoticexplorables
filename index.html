@@ -1,17 +1,18 @@
-<!doctype html>
-<html lang="en">
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Double Pendulum Explorable</title>
-  <body style="margin:20px;">
-    <div id="dp-mount"></div>
-    <script type="module">
-      import { DoublePendulumExplorable } from "./packages/double-pendulum/src/index.js";
-      const exp = new DoublePendulumExplorable("#dp-mount", {
-        width: 400, sceneSize: 400, phaseSize: 400,
-        showControls: true, showPhasePlane: true, showTrails: true
-      });
-      exp.play();
-    </script>
-  </body>
-</html>
+<div id="card"></div>
+
+<script type="module" is:inline>
+  import { ExplorableCard } from '/packages/core/src/ExplorableCard.js';
+  import { DoublePendulumExplorable } from '/packages/double-pendulum/src/index.js';
+
+  const card = new ExplorableCard('#card', {
+    ExplorableClass: DoublePendulumExplorable,
+    title: 'Double Pendulum',
+    subtitle: 'ensemble + phase plane',
+    width: 260,
+    actions: { play: true, reset: true },
+    explorable: {
+      width: 260, sceneSize: 200, phaseSize: 200, showControls: true, showPhasePlane: true, showTrails: true
+    }
+  });
+  card.play(); // optional
+</script>
