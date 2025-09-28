@@ -102,7 +102,7 @@ export class DoublePendulumExplorable {
     this.scene.setAttribute('viewBox','-220 -220 440 440');
     this.scene.setAttribute('preserveAspectRatio','xMidYMid meet');
     this.scene.style.display='block';
-    this.scene.style.background='#19191905';
+    this.scene.style.background='transparent';
     this.sceneBox.appendChild(this.scene);
 
     // Phase plane (Canvas)
@@ -112,7 +112,7 @@ export class DoublePendulumExplorable {
       this.phaseCanvas.style.width = `${this.o.phaseSize}px`;
       this.phaseCanvas.style.height = `${this.o.phaseSize}px`;
       this.phaseCanvas.style.display='block';
-      this.phaseCanvas.style.background='#19191905';
+      this.phaseCanvas.style.background='transparent';
       this.phaseBox.appendChild(this.phaseCanvas);
     }
 
@@ -402,7 +402,7 @@ export class DoublePendulumExplorable {
     const scaleX=cvs.width/cssW, scaleY=cvs.height/cssH;
     ctx.setTransform(scaleX,0,0,scaleY,0,0);
 
-    ctx.fillStyle='#fff'; ctx.fillRect(0,0,cssW,cssH);
+    ctx.fillStyle='#ffffff01'; ctx.fillRect(0,0,cssW,cssH);
 
     // inner frame & mapping
     const m=18, x0=m, y0=m, x1=cssW-m, y1=cssH-m;
