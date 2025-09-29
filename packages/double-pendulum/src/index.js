@@ -4,7 +4,7 @@
 //   auto-falls back to 'stack'.
 // - Controls stay at the end (right) in row layout.
 // - Transparent backgrounds, thicker strokes, widgets toolbar.
-// - Sliders: N, σ, L1, L2, m1, m2; toggle: Trails; buttons: Play/Pause, Reload.
+// - Sliders: N, σ, L1, L2, m1, m2, Trail; toggle: Trails; buttons: Play/Pause, Reload.
 
 import slider from '../../widgets/src/slider.js';
 import sliderElement from '../../widgets/src/sliderElement.js';
@@ -87,7 +87,8 @@ export class DoublePendulumExplorable {
       params: { m1:1, m2:1, L1:1, L2:1, g:9.81 },
       transparent: true,
       strokeScale: 1.0,
-      fitContainer: true          // NEW: auto-size to container in 'row'
+      fitContainer: true,         // auto-size to container in 'row'
+      trailLength: 800            // NEW: max points remembered in each bob trace
     }, opts);
 
     this.params = { ...this.o.params };
@@ -371,7 +372,7 @@ export class DoublePendulumExplorable {
 
     // Sliders block
     const slidersSVG = document.createElementNS('http://www.w3.org/2000/svg','svg');
-    const totalRows = 6;
+    const totalRows = 7; // N, σ, L1, L2, m1, m2, Trail
     slidersSVG.setAttribute('width', w);
     slidersSVG.setAttribute('height', y1 + (totalRows-1)*dy + 24);
     slidersSVG.style.display='block';
@@ -446,7 +447,37 @@ export class DoublePendulumExplorable {
       .show(true)
       .update(()=>{ this.params.m2 = m2S.value(); });
     slidersSVG.appendChild(sliderElement(m2S));
-  }
+
+    // Trail length (points)
+// Trail length (points)
+const trailS = slider().id('trailLen').label('Trail').size(w - 40).girth(8).knob(7)
+  .position({ x: 20, y: y1 + dy*6 })
+  .range([100, 2000])
+  .value(this.o.trailLength)
+  .show(true)
+  .update(() => {
+    const oldLen = this.o.trailLength | 0;
+    const newLen = Math.max(100, Math.round(trailS.value()));
+    if (newLen !== oldLen) {
+      this.o.trailLength = newLen;
+
+      // Trim scene trails right away if we reduced length
+      if (newLen < oldLen && this.ensemble?.length) {
+        for (const p of this.ensemble) {
+          // SVG path trail (array of [x,y])
+          if (p.path.length > newLen) {
+            p.path = p.path.slice(-newLen);  // keep most recent
+          }
+          // Phase-plane ring buffer: just clamp visible count
+          p.phCount = Math.min(p.phCount, newLen);
+        }
+        this.render(); // update both canvases/paths now
+      }
+      // If we increased the length, both trails will grow naturally as we sample.
+    }
+  });
+slidersSVG.appendChild(sliderElement(trailS));
+}
 
   _buildSceneElements(){
     if (this.o.enableClickIK){
@@ -496,7 +527,7 @@ export class DoublePendulumExplorable {
 
       const trail=document.createElementNS('http://www.w3.org/2000/svg','path');
       trail.setAttribute('fill','none'); trail.setAttribute('stroke',color);
-      trail.setAttribute('stroke-opacity','0.45');
+      trail.setAttribute('stroke-opacity', '0.45');
       trail.setAttribute('stroke-width', String(trailW));
       if(!this.o.showTrails) trail.style.display='none';
       this.scene.appendChild(trail);
@@ -565,7 +596,8 @@ export class DoublePendulumExplorable {
       b2.setAttribute('cx',x2); b2.setAttribute('cy',y2);
 
       if(this.o.showTrails){
-        p.path.push([x2,y2]); if(p.path.length>800) p.path.shift();
+        p.path.push([x2,y2]);
+        if (p.path.length > this.o.trailLength) p.path.shift(); // <-- use slider value
         this.traces[ti++]?.setAttribute('d', p.path.map((pt,i)=>(i?'L':'M')+pt[0].toFixed(1)+','+pt[1].toFixed(1)).join(' '));
         if(this.phaseCanvas){
           const C=p.phT1.length;
@@ -619,9 +651,9 @@ export class DoublePendulumExplorable {
     // labels
     ctx.fillStyle='#333'; ctx.font='12px ui-sans-serif, system-ui, -apple-system';
     ctx.textAlign='center'; ctx.textBaseline='top';
-    ctx.fillText('θ₁', (x0+x1)/2, y1 + 6);
+    ctx.fillText('θ₁', (x0+x1)/2, y1 );
     ctx.save(); ctx.translate(x0 - 10, (y0+y1)/2); ctx.rotate(-Math.PI/2);
-    ctx.textAlign='center'; ctx.textBaseline='bottom'; ctx.fillText('θ₂', 0, 0); ctx.restore();
+    ctx.textAlign='center'; ctx.textBaseline='bottom'; ctx.fillText('θ₂', 0, 10); ctx.restore();
 
     if(!this.o.showTrails) return;
 
@@ -677,7 +709,8 @@ export class DoublePendulumExplorable {
     const N=this.ensemble.length;
     for(let i=0;i<N;i++){
       const p=this.ensemble[i];
-      const C=p.phT1.length, n=p.phCount;
+      const C = p.phT1.length;
+      const n = Math.min(p.phCount, this.o.trailLength);
       if(n<2) continue;
       const hue=Math.round(360*(N<=1?0.5:i/(N-1)));
       const col=`hsla(${hue} 70% 35% / 0.7)`;
