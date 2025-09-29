@@ -1,8 +1,5 @@
 // packages/core/src/ExplorableCard.js
-// Card that fits the column width, with an optional centered inner rail.
-// No buttons; your explorable owns its toolbar.
-
-import { ExplorableCardCSS } from './ensure-css.js';
+import { ensureCardCSS } from './ensure-css.js';
 
 export class ExplorableCard {
   constructor(mount, cfg) {
@@ -10,9 +7,8 @@ export class ExplorableCard {
       ExplorableClass,
       title = 'Explorable',
       subtitle = '',
-      // Instead of forcing inline width on the outer card, we pass a "rail" width
-      width = 260,           // desired inner content width (px)
-      fitColumn = true,      // <— NEW: outer card stretches to container width
+      width = 260,         // inner rail width (px)
+      fitColumn = true,    // outer card spans container
       explorable = {},
     } = cfg || {};
 
@@ -21,20 +17,17 @@ export class ExplorableCard {
     this.root = typeof mount === 'string' ? document.querySelector(mount) : mount;
     if (!this.root) throw new Error('ExplorableCard: mount not found');
 
-    ExplorableCardCSS.ensure();
+    ensureCardCSS();
 
-    // Outer card spans the column; inner rail is centered & sized by CSS var
+    // OUTER: fills column
     const card = document.createElement('section');
     card.className = 'explorable-card';
-    if (fitColumn) {
-      card.style.width = '100%';
-    }
-    // supply rail width as a CSS variable the stylesheet will use
+    if (fitColumn) card.style.width = '100%';
     card.style.setProperty('--card-rail-width', `${width}px`);
     this.root.appendChild(card);
     this.card = card;
 
-    // Header (optional chrome)
+    // Header chrome
     const header = document.createElement('div');
     header.className = 'explorable-card__header';
     card.appendChild(header);
@@ -51,7 +44,7 @@ export class ExplorableCard {
       header.appendChild(sub);
     }
 
-    // Inner rail: fixed pixel width, centered
+    // INNER rail (centered, fixed px width)
     const rail = document.createElement('div');
     rail.className = 'explorable-card__rail';
     card.appendChild(rail);
@@ -60,7 +53,7 @@ export class ExplorableCard {
     slot.className = 'explorable-card__slot';
     rail.appendChild(slot);
 
-    // Instantiate explorable into the slot; pass width as a hint
+    // Instantiate explorable into the slot
     const exOpts = Object.assign({ width }, explorable || {});
     this.exp = new ExplorableClass(slot, exOpts);
   }

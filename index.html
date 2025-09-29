@@ -1,26 +1,26 @@
-<div id="card"></div>
-
+<div id="card" style="max-width:none; overflow:auto;"></div>
 <script type="module" is:inline>
   import { ExplorableCard } from '/packages/core/src/ExplorableCard.js';
   import { DoublePendulumExplorable } from '/packages/double-pendulum/src/index.js';
 
   const card = new ExplorableCard('#card', {
     ExplorableClass: DoublePendulumExplorable,
-    title: 'Double Pendulum',
-    subtitle: '',
-    width: 280, // inner rail width for the card
+    title:'',
+    width: 300, // scene(280) + phase(280) + controls(~220) + gaps(~20)
     explorable: {
-      width: 280,
-      sceneSize: 280,
-      phaseSize: 280,
-      showControls: true,
-      showPhasePlane: true,
-      showTrails: true,
-      showButtons: true,   // let the explorable render its toolbar
-      transparent: true    // background transparent (SVG + canvas)
+      
+      width: 300,
+      layout:'stack',
+      controlsAt:'top',
+      sceneSize: 300,
+      phaseSize: 300,
+      showControls:true,
+      showPhasePlane:true,
+      showTrails:true,
+      showButtons:true,
+      transparent:true
     }
   });
 
-  // optional autoplay
   card.play();
 </script>

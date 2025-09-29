@@ -1,104 +1,35 @@
-/* Minimal, neutral, no rounded corners. Works in light/dark via system prefs. */
-
-.explorable-card {
-  --xc-border: #c9c9c900;
-  --xc-text: #11111100;
-  --xc-muted: #66666600;
-  --xc-bg: #ffffff00;
-
-  display: grid;
-  grid-template-rows: auto auto 1fr;
-  gap: 8px;
-  width: max-content;
-  padding: 10px 12px;
-  border: 1px solid var(--xc-border);
-  background: var(--xc-bg);
-  color: var(--xc-text);
-  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-  line-height: 1.35;
-}
-
-@media (prefers-color-scheme: dark) {
-  .explorable-card {
-    --xc-border: #5a5a5a00;
-    --xc-text: #d7d7d700;
-    --xc-muted: #9a9a9a00;
-    --xc-bg: #ffffff00;
-  }
-}
-
-.explorable-card__header {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-}
-
-.explorable-card__title {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.explorable-card__subtitle {
-  margin: 0;
-  font-size: 12px;
-  color: var(--xc-muted);
-}
-
-.explorable-card__toolbar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.explorable-card__slot {
-  /* where the explorable mounts */
-  display: grid;
-  gap: 10px; /* space between the explorable’s controls and its canvases */
-  width: max-content;
-}
-
-/* Small inline controls that don’t clash with your widget style */
-.explorable-card__btn {
-  appearance: none;
-  background: transparent;
-  color: var(--xc-text);
-  border: 1px solid var(--xc-border);
-  padding: 2px 6px;
-  font-size: 12px;
-  cursor: pointer;
-}
-.explorable-card__btn[aria-pressed="true"] {
-  background: #e9e9e900;
-}
-@media (prefers-color-scheme: dark) {
-  .explorable-card__btn[aria-pressed="true"] {
-    background: #ffffff00;
-  }
-}
-
 /* packages/core/src/explorable-card.css */
-
 .explorable-card {
-  /* OUTER: spans the column set by your Figure/ExplorableFigure */
   width: 100%;
   box-sizing: border-box;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
 }
-
 .explorable-card__header {
-  /* keep whatever typography you want; nothing layout-critical here */
   margin: 0 0 0.5rem 0;
+  background: transparent;
 }
-
+.explorable-card__title {
+  font-size: 1rem;
+  margin: 0;
+  padding: 0;
+}
+.explorable-card__subtitle {
+  font-size: 0.85rem;
+  color: #555;
+  margin: 0;
+  padding: 0;
+}
 .explorable-card__rail {
-  /* INNER: centered, pixel width controlled by --card-rail-width */
   width: var(--card-rail-width, 260px);
   max-width: 100%;
   margin-left: auto;
   margin-right: auto;
+  background: transparent;
 }
-
 .explorable-card__slot {
-  /* let the explorable fill the rail width */
   width: 100%;
+  background: transparent;
 }

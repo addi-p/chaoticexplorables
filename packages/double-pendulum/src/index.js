@@ -1,20 +1,25 @@
-// packages/double-pendulum/src/index.js
-// Double pendulum explorable with transparent backgrounds and thicker lines.
+// Double pendulum explorable with layout modes ('stack' or 'row') and
+// controls pinned at the end (right) in row layout (no wrapping).
+//
+// Features kept:
 // - Symbol buttons: Play/Pause + Reload
 // - Toggle: Trails
-// - Sliders: N (int), σ, L1, L2, m1, m2
-// - 200x200 scene (SVG) + 200x200 phase plane (Canvas w/ alpha)
-// - θ₁ (x) and θ₂ (y) labels on phase plane
-// - Options: { transparent = true, strokeScale = 1.0 }
+// - Sliders: N, σ, L1, L2, m1, m2
+// - Scene (SVG) + Phase plane (canvas, alpha)
+// - Transparent backgrounds, thicker strokes
+//
+// New/Important:
+// - layout: 'stack' | 'row'        (default 'stack')
+// - controlsAt: 'end'|'start'      (default 'end' if row)
+// - Row layout uses flex-wrap: nowrap so controls cannot drop below.
+// - Controls width ~220px so three blocks fit more easily.
 
 import slider from '../../widgets/src/slider.js';
 import sliderElement from '../../widgets/src/sliderElement.js';
 import toggle from '../../widgets/src/toggle.js';
 import toggleElement from '../../widgets/src/toggleElement.js';
 import iconFor from '../../widgets/src/button-symbols.js';
-import { Grid } from '../../widgets/src/gridd.js';
 
-// Ensure the plain (non-modules) widget CSS is present so theme vars apply
 (function ensureWidgetsCSS(){
   const id = 'cx-widgets-css';
   if (!document.getElementById(id)) {
@@ -38,7 +43,6 @@ function resizeCanvasToDisplaySize(cvs){
   return false;
 }
 
-// Single-source symbol button factory (listens ONLY on hit-rect)
 function createSymbolButton(svg, { x, y, size = 16, symbol = 'play', onClick }){
   const g = document.createElementNS('http://www.w3.org/2000/svg','g');
   g.setAttribute('class','widget button');
@@ -46,7 +50,6 @@ function createSymbolButton(svg, { x, y, size = 16, symbol = 'play', onClick }){
   svg.appendChild(g);
 
   const half = size;
-
   const bg = document.createElementNS('http://www.w3.org/2000/svg','rect');
   bg.setAttribute('x',-half); bg.setAttribute('y',-half);
   bg.setAttribute('width',2*half); bg.setAttribute('height',2*half);
@@ -63,7 +66,6 @@ function createSymbolButton(svg, { x, y, size = 16, symbol = 'play', onClick }){
   };
   setSymbol(symbol);
 
-  // Hit target — attach handler ONLY here, stop propagation to avoid double-fire
   const hit = document.createElementNS('http://www.w3.org/2000/svg','rect');
   hit.setAttribute('x',-half); hit.setAttribute('y',-half);
   hit.setAttribute('width',2*half); hit.setAttribute('height',2*half);
@@ -79,8 +81,10 @@ export class DoublePendulumExplorable {
   constructor(mount, opts = {}) {
     this.o = Object.assign({
       width: 280,
-      sceneSize: 200,
-      phaseSize: 200,
+      sceneSize: 280,
+      phaseSize: 280,
+      layout: 'stack',          // 'stack' | 'row'
+      controlsAt: 'end',        // for row: 'end' (scene→phase→controls) or 'start'
       showControls: true,
       showPhasePlane: true,
       showTrails: true,
@@ -89,9 +93,8 @@ export class DoublePendulumExplorable {
       ensembleCount: 5,
       spreadSigma: 0.02,
       params: { m1:1, m2:1, L1:1, L2:1, g:9.81 },
-      // NEW:
-      transparent: true,     // true => SVG/canvas are transparent
-      strokeScale: 1.0       // multiply all strokes/radii
+      transparent: true,
+      strokeScale: 1.0
     }, opts);
 
     this.params = { ...this.o.params };
@@ -99,13 +102,54 @@ export class DoublePendulumExplorable {
     this.dt = 1/240;
     this.running = false;
 
-    // Layout grid: controls on top, then two frames stacked
-    this.grid = new Grid(mount, { width: this.o.width, gap: 10 });
+    // ---------- Root ----------
+    this.root = typeof mount === 'string' ? document.querySelector(mount) : mount;
+    if (!this.root) throw new Error('DoublePendulumExplorable: mount not found');
 
-    if (this.o.showControls) this._buildControls(this.grid.slot());
+    // ---------- Scoped layout CSS (nowrap row) ----------
+    if (!document.getElementById('cx-dp-layout-css')) {
+      const style = document.createElement('style');
+      style.id = 'cx-dp-layout-css';
+      style.textContent = `
+        .cx-dp-wrap { display: flex; gap: 10px; align-items: flex-start; }
+        .cx-dp-wrap.stack { flex-direction: column; }
+        .cx-dp-wrap.row   { flex-direction: row; flex-wrap: nowrap; } /* <- no wrapping */
+        .cx-dp-controls { display: block; }
+        .cx-dp-view { display: block; line-height: 0; }
+        .cx-dp-scene-box, .cx-dp-phase-box { line-height: 0; }
+      `;
+      document.head.appendChild(style);
+    }
+
+    this.wrap = document.createElement('div');
+    this.wrap.className = `cx-dp-wrap ${this.o.layout === 'row' ? 'row' : 'stack'}`;
+    this.root.appendChild(this.wrap);
+
+    // Controls host (SVG widgets live here) — use narrower width so it fits one row
+    this.controlsHost = document.createElement('div');
+    this.controlsHost.className = 'cx-dp-controls d3-widgets';
+    const controlsWidth = Math.max(220, Math.min(320, this.o.width)); // ~220px baseline
+    this.controlsHost.style.width = `${controlsWidth}px`;
+
+    // Scene box
+    this.sceneBox = document.createElement('div');
+    this.sceneBox.className = 'cx-dp-view cx-dp-scene-box';
+    this.sceneBox.style.width = `${this.o.sceneSize}px`;
+    this.sceneBox.style.height = `${this.o.sceneSize}px`;
+
+    // Phase box
+    this.phaseBox = document.createElement('div');
+    this.phaseBox.className = 'cx-dp-view cx-dp-phase-box';
+    this.phaseBox.style.width = `${this.o.phaseSize}px`;
+    this.phaseBox.style.height = `${this.o.phaseSize}px`;
+
+    // Order per requested layout
+    this._applyLayoutOrder();
+
+    // Build controls
+    if (this.o.showControls) this._buildControls(this.controlsHost);
 
     // Scene (SVG)
-    this.sceneBox = this.grid.frame({ w:this.o.sceneSize, h:this.o.sceneSize });
     this.scene = document.createElementNS('http://www.w3.org/2000/svg','svg');
     this.scene.setAttribute('width', this.o.sceneSize);
     this.scene.setAttribute('height', this.o.sceneSize);
@@ -113,13 +157,11 @@ export class DoublePendulumExplorable {
     this.scene.setAttribute('preserveAspectRatio','xMidYMid meet');
     this.scene.style.display='block';
     this.scene.style.background = this.o.transparent ? 'transparent' : '#fff';
-    // Just in case any global CSS sets backgrounds:
     this.scene.style.setProperty('background-color', this.o.transparent ? 'transparent' : '#fff', 'important');
     this.sceneBox.appendChild(this.scene);
 
-    // Phase plane (Canvas)
+    // Phase plane (Canvas with alpha)
     if (this.o.showPhasePlane){
-      this.phaseBox = this.grid.frame({ w:this.o.phaseSize, h:this.o.phaseSize });
       this.phaseCanvas = document.createElement('canvas');
       this.phaseCanvas.style.width = `${this.o.phaseSize}px`;
       this.phaseCanvas.style.height = `${this.o.phaseSize}px`;
@@ -127,36 +169,55 @@ export class DoublePendulumExplorable {
       this.phaseCanvas.style.background = this.o.transparent ? 'transparent' : '#fff';
       this.phaseCanvas.style.setProperty('background-color', this.o.transparent ? 'transparent' : '#fff', 'important');
       this.phaseBox.appendChild(this.phaseCanvas);
-
-      // Get a 2D context that preserves alpha
       this.phaseCtx = this.phaseCanvas.getContext('2d', { alpha: true });
     }
 
+    // Interactions
     this._buildSceneElements();
+
+    // Ensemble + first draw
     this._rebuildEnsemble();
     this._drawPhase();
   }
 
+  _applyLayoutOrder(){
+    this.wrap.innerHTML = '';
+    if (this.o.layout === 'row') {
+      if (this.o.controlsAt === 'start') {
+        if (this.o.showControls)   this.wrap.appendChild(this.controlsHost);
+        this.wrap.appendChild(this.sceneBox);
+        if (this.o.showPhasePlane) this.wrap.appendChild(this.phaseBox);
+      } else {
+        // default/end: scene → phase → controls
+        this.wrap.appendChild(this.sceneBox);
+        if (this.o.showPhasePlane) this.wrap.appendChild(this.phaseBox);
+        if (this.o.showControls)   this.wrap.appendChild(this.controlsHost);
+      }
+    } else {
+      // stack: controls (top) → scene → phase
+      if (this.o.showControls)   this.wrap.appendChild(this.controlsHost);
+      this.wrap.appendChild(this.sceneBox);
+      if (this.o.showPhasePlane) this.wrap.appendChild(this.phaseBox);
+    }
+  }
+
   /* ---------- Controls (toolbar + sliders) ---------- */
   _buildControls(container){
-    const host = document.createElement('div');
-    host.className = 'd3-widgets';
-    container.appendChild(host);
+    container.innerHTML = '';
 
-    const w = Math.max(this.o.width, 280);
-    const dy = 40;           // slider row spacing
-    const y0 = 24;           // toolbar center Y
-    const y1 = 70;           // first slider center Y
+    const w = parseFloat(this.controlsHost.style.width) || 220;
+    const dy = 40;
+    const y0 = 24;
+    const y1 = 70;
 
-    // Toolbar (optional)
+    // Toolbar
     if (this.o.showButtons) {
       const toolbar = document.createElementNS('http://www.w3.org/2000/svg','svg');
       toolbar.setAttribute('width', w);
       toolbar.setAttribute('height', 44);
       toolbar.style.display='block';
-      host.appendChild(toolbar);
+      container.appendChild(toolbar);
 
-      // Play/Pause
       this._playBtn = createSymbolButton(toolbar, {
         x: 18, y: y0, size: 16, symbol: this.running ? 'pause' : 'play',
         onClick: (_ev, api) => {
@@ -165,13 +226,11 @@ export class DoublePendulumExplorable {
         }
       });
 
-      // Reload (reseeds & clears trails)
       createSymbolButton(toolbar, {
         x: 52, y: y0, size: 16, symbol: 'reload',
         onClick: () => { this.reset(); }
       });
 
-      // Trails toggle at right
       const trailsT = toggle().id('trails').size(10)
         .position({ x: w - 20, y: y0 })
         .label(null)
@@ -200,9 +259,8 @@ export class DoublePendulumExplorable {
     slidersSVG.setAttribute('width', w);
     slidersSVG.setAttribute('height', y1 + (totalRows-1)*dy + 24);
     slidersSVG.style.display='block';
-    host.appendChild(slidersSVG);
+    container.appendChild(slidersSVG);
 
-    // N (integer)
     const countS = slider().id('count').label('N').size(w - 40).girth(8).knob(7)
       .position({ x: 20, y: y1 + dy*0 })
       .range([1, 50])
@@ -227,7 +285,6 @@ export class DoublePendulumExplorable {
     nVal.setAttribute('text-anchor', 'end');
     slidersSVG.appendChild(nVal);
 
-    // σ (spread)
     const spreadS = slider().id('spread').label('σ').size(w - 40).girth(8).knob(7)
       .position({ x: 20, y: y1 + dy*1 })
       .range([0, 0.2])
@@ -236,7 +293,6 @@ export class DoublePendulumExplorable {
       .update(()=>{ this.o.spreadSigma = spreadS.value(); this._reseedEnsemble(true); this.render(); });
     slidersSVG.appendChild(sliderElement(spreadS));
 
-    // L1
     const L1S = slider().id('L1').label('L1').size(w - 40).girth(8).knob(7)
       .position({ x: 20, y: y1 + dy*2 })
       .range([0.5, 2.0])
@@ -245,7 +301,6 @@ export class DoublePendulumExplorable {
       .update(()=>{ this.params.L1 = L1S.value(); this.render(); });
     slidersSVG.appendChild(sliderElement(L1S));
 
-    // L2
     const L2S = slider().id('L2').label('L2').size(w - 40).girth(8).knob(7)
       .position({ x: 20, y: y1 + dy*3 })
       .range([0.5, 2.0])
@@ -254,7 +309,6 @@ export class DoublePendulumExplorable {
       .update(()=>{ this.params.L2 = L2S.value(); this.render(); });
     slidersSVG.appendChild(sliderElement(L2S));
 
-    // m1
     const m1S = slider().id('m1').label('m1').size(w - 40).girth(8).knob(7)
       .position({ x: 20, y: y1 + dy*4 })
       .range([0.1, 5.0])
@@ -263,7 +317,6 @@ export class DoublePendulumExplorable {
       .update(()=>{ this.params.m1 = m1S.value(); });
     slidersSVG.appendChild(sliderElement(m1S));
 
-    // m2
     const m2S = slider().id('m2').label('m2').size(w - 40).girth(8).knob(7)
       .position({ x: 20, y: y1 + dy*5 })
       .range([0.1, 5.0])
@@ -273,7 +326,6 @@ export class DoublePendulumExplorable {
     slidersSVG.appendChild(sliderElement(m2S));
   }
 
-  /* ---------- Scene ---------- */
   _buildSceneElements(){
     if (this.o.enableClickIK){
       this.scene.addEventListener('click',ev=>{
@@ -292,15 +344,14 @@ export class DoublePendulumExplorable {
     }
   }
 
-  /* ---------- Ensemble ---------- */
   _rebuildEnsemble(){
     while(this.scene.firstChild) this.scene.removeChild(this.scene.firstChild);
     this.ensemble=[]; this.rods=[]; this.bobs=[]; this.traces=[];
     const N=this.o.ensembleCount;
 
-    const rodW   = 3.5 * this.o.strokeScale;  // thicker rods
-    const bobR   = 3.5 * this.o.strokeScale;  // bigger bobs
-    const trailW = 2.0 * this.o.strokeScale;  // thicker trails
+    const rodW   = 3.5 * this.o.strokeScale;
+    const bobR   = 3.5 * this.o.strokeScale;
+    const trailW = 2.0 * this.o.strokeScale;
 
     for(let i=0;i<N;i++){
       const color=`hsl(${(i*137.508)%360} 70% 35%)`;
@@ -323,7 +374,7 @@ export class DoublePendulumExplorable {
 
       const trail=document.createElementNS('http://www.w3.org/2000/svg','path');
       trail.setAttribute('fill','none'); trail.setAttribute('stroke',color);
-      trail.setAttribute('stroke-opacity','0.45'); // a tad stronger opacity
+      trail.setAttribute('stroke-opacity','0.45');
       trail.setAttribute('stroke-width', String(trailW));
       if(!this.o.showTrails) trail.style.display='none';
       this.scene.appendChild(trail);
@@ -354,7 +405,6 @@ export class DoublePendulumExplorable {
     this.render();
   }
 
-  /* ---------- Physics ---------- */
   _step(){
     for(const p of this.ensemble){
       const y0=[p.t1,p.w1,p.t2,p.w2];
@@ -380,7 +430,6 @@ export class DoublePendulumExplorable {
     return [w1,dw1,w2,dw2];
   }
 
-  /* ---------- Render ---------- */
   render(){
     const {L1,L2}=this.params;
     let ri=0,bi=0,ti=0;
@@ -412,7 +461,6 @@ export class DoublePendulumExplorable {
     this._drawPhase();
   }
 
-  /* ---------- Phase plane draw (centered, with θ₁ / θ₂ labels) ---------- */
   _drawPhase(){
     if(!this.phaseCanvas) return;
     const cvs=this.phaseCanvas, ctx=this.phaseCtx || this.phaseCanvas.getContext('2d', { alpha:true });
@@ -424,10 +472,8 @@ export class DoublePendulumExplorable {
     const scaleX=cvs.width/cssW, scaleY=cvs.height/cssH;
     ctx.setTransform(scaleX,0,0,scaleY,0,0);
 
-    // Clear to transparent (no white paint)
     ctx.clearRect(0,0,cssW,cssH);
 
-    // inner frame & mapping
     const m=18, x0=m, y0=m, x1=cssW-m, y1=cssH-m;
     const W=x1-x0, H=y1-y0;
     const A0=-Math.PI, A1=Math.PI, B0=-Math.PI, B1=Math.PI;
@@ -449,23 +495,18 @@ export class DoublePendulumExplorable {
       const yy=mapY(t);
       ctx.beginPath(); ctx.moveTo(mapX(0)-3, yy); ctx.lineTo(mapX(0)+3, yy); ctx.stroke();
     }
-    // axis labels θ₁ (x) and θ₂ (y)
+    // labels
     ctx.fillStyle='#333'; ctx.font='12px ui-sans-serif, system-ui, -apple-system';
     ctx.textAlign='center'; ctx.textBaseline='top';
     ctx.fillText('θ₁', (x0+x1)/2, y1 + 6);
-    ctx.save();
-    ctx.translate(x0 - 10, (y0+y1)/2);
-    ctx.rotate(-Math.PI/2);
-    ctx.textAlign='center'; ctx.textBaseline='bottom';
-    ctx.fillText('θ₂', 0, 0);
-    ctx.restore();
+    ctx.save(); ctx.translate(x0 - 10, (y0+y1)/2); ctx.rotate(-Math.PI/2);
+    ctx.textAlign='center'; ctx.textBaseline='bottom'; ctx.fillText('θ₂', 0, 0); ctx.restore();
 
     if(!this.o.showTrails) return;
 
     const wrapA=a=>{ a=(a+Math.PI)%TAU; if(a<0)a+=TAU; return a-Math.PI; };
     const unwrap=d=> (d>Math.PI? d-TAU : (d<=-Math.PI? d+TAU : d));
-
-    const segW = 2.0 * this.o.strokeScale; // thicker trajectories
+    const segW = 2.0 * this.o.strokeScale;
 
     const drawWrappedSegment=(a0,b0,a1,b1,color)=>{
       let sx=wrapA(a0), sy=wrapA(b0);
@@ -530,7 +571,6 @@ export class DoublePendulumExplorable {
     }
   }
 
-  /* ---------- Loop ---------- */
   play(){ if(this.running) return; this.running=true; this._lastTs=0; this._raf=requestAnimationFrame(t=>this._loop(t)); }
   pause(){ this.running=false; }
   _loop(ts){
@@ -546,5 +586,13 @@ export class DoublePendulumExplorable {
     const pt=svg.createSVGPoint(); pt.x=cx; pt.y=cy;
     const m=svg.getScreenCTM().inverse();
     return pt.matrixTransform(m);
+  }
+
+  setLayout(layout='stack', controlsAt='end'){
+    this.o.layout = layout;
+    this.o.controlsAt = controlsAt;
+    this.wrap.classList.toggle('row', layout==='row');
+    this.wrap.classList.toggle('stack', layout!=='row');
+    this._applyLayoutOrder();
   }
 }
