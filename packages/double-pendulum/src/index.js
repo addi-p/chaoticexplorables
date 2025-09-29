@@ -1,18 +1,10 @@
-// Double pendulum explorable with layout modes ('stack' or 'row') and
-// controls pinned at the end (right) in row layout (no wrapping).
-//
-// Features kept:
-// - Symbol buttons: Play/Pause + Reload
-// - Toggle: Trails
-// - Sliders: N, σ, L1, L2, m1, m2
-// - Scene (SVG) + Phase plane (canvas, alpha)
-// - Transparent backgrounds, thicker strokes
-//
-// New/Important:
-// - layout: 'stack' | 'row'        (default 'stack')
-// - controlsAt: 'end'|'start'      (default 'end' if row)
-// - Row layout uses flex-wrap: nowrap so controls cannot drop below.
-// - Controls width ~220px so three blocks fit more easily.
+// Double pendulum explorable with responsive row/stack layout.
+// - In 'row' layout it measures the available width and resizes canvases so that
+//   scene → phase → controls fit on one line (no scroll). If too narrow, it
+//   auto-falls back to 'stack'.
+// - Controls stay at the end (right) in row layout.
+// - Transparent backgrounds, thicker strokes, widgets toolbar.
+// - Sliders: N, σ, L1, L2, m1, m2; toggle: Trails; buttons: Play/Pause, Reload.
 
 import slider from '../../widgets/src/slider.js';
 import sliderElement from '../../widgets/src/sliderElement.js';
@@ -80,11 +72,11 @@ function createSymbolButton(svg, { x, y, size = 16, symbol = 'play', onClick }){
 export class DoublePendulumExplorable {
   constructor(mount, opts = {}) {
     this.o = Object.assign({
-      width: 280,
+      width: undefined,           // when card is fluid, width can be undefined
       sceneSize: 280,
       phaseSize: 280,
-      layout: 'stack',          // 'stack' | 'row'
-      controlsAt: 'end',        // for row: 'end' (scene→phase→controls) or 'start'
+      layout: 'stack',            // 'stack' | 'row'
+      controlsAt: 'end',          // (row) 'end' or 'start'
       showControls: true,
       showPhasePlane: true,
       showTrails: true,
@@ -94,7 +86,8 @@ export class DoublePendulumExplorable {
       spreadSigma: 0.02,
       params: { m1:1, m2:1, L1:1, L2:1, g:9.81 },
       transparent: true,
-      strokeScale: 1.0
+      strokeScale: 1.0,
+      fitContainer: true          // NEW: auto-size to container in 'row'
     }, opts);
 
     this.params = { ...this.o.params };
@@ -102,18 +95,17 @@ export class DoublePendulumExplorable {
     this.dt = 1/240;
     this.running = false;
 
-    // ---------- Root ----------
+    // Root + CSS
     this.root = typeof mount === 'string' ? document.querySelector(mount) : mount;
     if (!this.root) throw new Error('DoublePendulumExplorable: mount not found');
 
-    // ---------- Scoped layout CSS (nowrap row) ----------
     if (!document.getElementById('cx-dp-layout-css')) {
       const style = document.createElement('style');
       style.id = 'cx-dp-layout-css';
       style.textContent = `
         .cx-dp-wrap { display: flex; gap: 10px; align-items: flex-start; }
         .cx-dp-wrap.stack { flex-direction: column; }
-        .cx-dp-wrap.row   { flex-direction: row; flex-wrap: nowrap; } /* <- no wrapping */
+        .cx-dp-wrap.row   { flex-direction: row; flex-wrap: nowrap; } /* no wrap, no scroll */
         .cx-dp-controls { display: block; }
         .cx-dp-view { display: block; line-height: 0; }
         .cx-dp-scene-box, .cx-dp-phase-box { line-height: 0; }
@@ -121,29 +113,26 @@ export class DoublePendulumExplorable {
       document.head.appendChild(style);
     }
 
+    // Wrapper
     this.wrap = document.createElement('div');
     this.wrap.className = `cx-dp-wrap ${this.o.layout === 'row' ? 'row' : 'stack'}`;
     this.root.appendChild(this.wrap);
 
-    // Controls host (SVG widgets live here) — use narrower width so it fits one row
+    // Controls host (narrow enough to help fit one row)
     this.controlsHost = document.createElement('div');
     this.controlsHost.className = 'cx-dp-controls d3-widgets';
-    const controlsWidth = Math.max(220, Math.min(320, this.o.width)); // ~220px baseline
-    this.controlsHost.style.width = `${controlsWidth}px`;
+    this._controlsMin = 180;  // min control width
+    this._controlsMax = 320;  // max control width
+    this._controlsBase = 220; // preferred width
 
-    // Scene box
+    // Scene + Phase boxes
     this.sceneBox = document.createElement('div');
     this.sceneBox.className = 'cx-dp-view cx-dp-scene-box';
-    this.sceneBox.style.width = `${this.o.sceneSize}px`;
-    this.sceneBox.style.height = `${this.o.sceneSize}px`;
 
-    // Phase box
     this.phaseBox = document.createElement('div');
     this.phaseBox.className = 'cx-dp-view cx-dp-phase-box';
-    this.phaseBox.style.width = `${this.o.phaseSize}px`;
-    this.phaseBox.style.height = `${this.o.phaseSize}px`;
 
-    // Order per requested layout
+    // Order
     this._applyLayoutOrder();
 
     // Build controls
@@ -151,8 +140,6 @@ export class DoublePendulumExplorable {
 
     // Scene (SVG)
     this.scene = document.createElementNS('http://www.w3.org/2000/svg','svg');
-    this.scene.setAttribute('width', this.o.sceneSize);
-    this.scene.setAttribute('height', this.o.sceneSize);
     this.scene.setAttribute('viewBox','-220 -220 440 440');
     this.scene.setAttribute('preserveAspectRatio','xMidYMid meet');
     this.scene.style.display='block';
@@ -160,11 +147,9 @@ export class DoublePendulumExplorable {
     this.scene.style.setProperty('background-color', this.o.transparent ? 'transparent' : '#fff', 'important');
     this.sceneBox.appendChild(this.scene);
 
-    // Phase plane (Canvas with alpha)
+    // Phase (Canvas)
     if (this.o.showPhasePlane){
       this.phaseCanvas = document.createElement('canvas');
-      this.phaseCanvas.style.width = `${this.o.phaseSize}px`;
-      this.phaseCanvas.style.height = `${this.o.phaseSize}px`;
       this.phaseCanvas.style.display='block';
       this.phaseCanvas.style.background = this.o.transparent ? 'transparent' : '#fff';
       this.phaseCanvas.style.setProperty('background-color', this.o.transparent ? 'transparent' : '#fff', 'important');
@@ -175,9 +160,16 @@ export class DoublePendulumExplorable {
     // Interactions
     this._buildSceneElements();
 
-    // Ensemble + first draw
+    // Ensemble + initial sizes
     this._rebuildEnsemble();
+    this._applyResponsiveSizing(true);
     this._drawPhase();
+
+    // Resize observer for responsive row
+    if (this.o.fitContainer) {
+      this._ro = new ResizeObserver(() => this._applyResponsiveSizing(false));
+      this._ro.observe(this.root);
+    }
   }
 
   _applyLayoutOrder(){
@@ -188,24 +180,148 @@ export class DoublePendulumExplorable {
         this.wrap.appendChild(this.sceneBox);
         if (this.o.showPhasePlane) this.wrap.appendChild(this.phaseBox);
       } else {
-        // default/end: scene → phase → controls
         this.wrap.appendChild(this.sceneBox);
         if (this.o.showPhasePlane) this.wrap.appendChild(this.phaseBox);
         if (this.o.showControls)   this.wrap.appendChild(this.controlsHost);
       }
     } else {
-      // stack: controls (top) → scene → phase
       if (this.o.showControls)   this.wrap.appendChild(this.controlsHost);
       this.wrap.appendChild(this.sceneBox);
       if (this.o.showPhasePlane) this.wrap.appendChild(this.phaseBox);
     }
   }
 
-  /* ---------- Controls (toolbar + sliders) ---------- */
+  _applyResponsiveSizing(initial=false){
+    // If not row or no fitting, just apply fixed sizes
+    if (this.o.layout !== 'row' || !this.o.fitContainer) {
+      const s = this.o.sceneSize, p = this.o.phaseSize;
+      this._setSceneSize(s);
+      if (this.o.showPhasePlane) this._setPhaseSize(p);
+      if (this.o.showControls)   this._setControlsWidth(this._controlsBase);
+      if (!initial) this.render();
+      return;
+    }
+
+    const avail = Math.max(0, Math.floor(this.root.clientWidth || 0));
+    const gap = 10;
+    let cw = clamp(this._controlsBase, this._controlsMin, this._controlsMax);
+
+    const minView = 140; // minimum side for each canvas in row
+
+    if (this.o.showPhasePlane && this.o.showControls) {
+      // scene + phase + controls with 2 gaps
+      let rem = avail - cw - 2*gap;
+      let each = Math.floor(rem / 2);
+
+      if (each < minView) {
+        // try shrinking controls down to min
+        cw = clamp(avail - 2*minView - 2*gap, this._controlsMin, this._controlsMax);
+        rem = avail - cw - 2*gap;
+        each = Math.floor(rem / 2);
+      }
+      if (each < minView) {
+        // too tight: fall back to stack
+        this.wrap.classList.remove('row');
+        this.wrap.classList.add('stack');
+        this._applyLayoutOrder(); // controls → scene → phase
+        this._setControlsWidth(this._controlsBase);
+        this._setSceneSize(this.o.sceneSize);
+        if (this.o.showPhasePlane) this._setPhaseSize(this.o.phaseSize);
+        if (!initial) this.render();
+        return;
+      }
+
+      // OK: stick to row, set sizes
+      this.wrap.classList.remove('stack');
+      this.wrap.classList.add('row');
+      this._applyLayoutOrder(); // ensure order
+      this._setControlsWidth(cw);
+      this._setSceneSize(each);
+      if (this.o.showPhasePlane) this._setPhaseSize(each);
+      if (!initial) this.render();
+      return;
+    }
+
+    if (!this.o.showControls && this.o.showPhasePlane) {
+      // scene + phase only, 1 gap
+      let rem = avail - gap;
+      let each = Math.floor(rem / 2);
+      if (each < minView) {
+        this.wrap.classList.remove('row');
+        this.wrap.classList.add('stack');
+        this._applyLayoutOrder();
+        this._setSceneSize(this.o.sceneSize);
+        this._setPhaseSize(this.o.phaseSize);
+        if (!initial) this.render();
+        return;
+      }
+      this.wrap.classList.remove('stack');
+      this.wrap.classList.add('row');
+      this._applyLayoutOrder();
+      this._setSceneSize(each);
+      this._setPhaseSize(each);
+      if (!initial) this.render();
+      return;
+    }
+
+    // scene + controls (no phase)
+    if (this.o.showControls && !this.o.showPhasePlane) {
+      let rem = avail - cw - gap;
+      let s = Math.floor(rem);
+      if (s < minView) {
+        cw = clamp(avail - minView - gap, this._controlsMin, this._controlsMax);
+        s = Math.floor(avail - cw - gap);
+      }
+      if (s < minView) {
+        this.wrap.classList.remove('row');
+        this.wrap.classList.add('stack');
+        this._applyLayoutOrder();
+        this._setControlsWidth(this._controlsBase);
+        this._setSceneSize(this.o.sceneSize);
+        if (!initial) this.render();
+        return;
+      }
+      this.wrap.classList.remove('stack');
+      this.wrap.classList.add('row');
+      this._applyLayoutOrder();
+      this._setControlsWidth(cw);
+      this._setSceneSize(s);
+      if (!initial) this.render();
+      return;
+    }
+
+    // scene only
+    this._setSceneSize(Math.max(minView, avail));
+    if (!initial) this.render();
+  }
+
+  _setControlsWidth(px){
+    this.controlsHost.style.width = `${Math.round(px)}px`;
+    // rebuild the controls SVGs to the new width (so slider length matches)
+    this._buildControls(this.controlsHost);
+  }
+  _setSceneSize(px){
+    const s = Math.round(px);
+    this.sceneBox.style.width = `${s}px`;
+    this.sceneBox.style.height = `${s}px`;
+    this.scene.setAttribute('width', s);
+    this.scene.setAttribute('height', s);
+  }
+  _setPhaseSize(px){
+    const p = Math.round(px);
+    this.phaseBox.style.width = `${p}px`;
+    this.phaseBox.style.height = `${p}px`;
+    if (this.phaseCanvas){
+      this.phaseCanvas.style.width = `${p}px`;
+      this.phaseCanvas.style.height = `${p}px`;
+    }
+  }
+
+  /* ---------- Controls ---------- */
   _buildControls(container){
     container.innerHTML = '';
 
-    const w = parseFloat(this.controlsHost.style.width) || 220;
+    const w = Math.max(this._controlsMin, Math.min(this._controlsMax, parseFloat(this.controlsHost.style.width) || this._controlsBase));
     const dy = 40;
     const y0 = 24;
     const y1 = 70;
@@ -261,6 +377,7 @@ export class DoublePendulumExplorable {
     slidersSVG.style.display='block';
     container.appendChild(slidersSVG);
 
+    // N
     const countS = slider().id('count').label('N').size(w - 40).girth(8).knob(7)
       .position({ x: 20, y: y1 + dy*0 })
       .range([1, 50])
@@ -285,6 +402,7 @@ export class DoublePendulumExplorable {
     nVal.setAttribute('text-anchor', 'end');
     slidersSVG.appendChild(nVal);
 
+    // σ
     const spreadS = slider().id('spread').label('σ').size(w - 40).girth(8).knob(7)
       .position({ x: 20, y: y1 + dy*1 })
       .range([0, 0.2])
@@ -293,6 +411,7 @@ export class DoublePendulumExplorable {
       .update(()=>{ this.o.spreadSigma = spreadS.value(); this._reseedEnsemble(true); this.render(); });
     slidersSVG.appendChild(sliderElement(spreadS));
 
+    // L1
     const L1S = slider().id('L1').label('L1').size(w - 40).girth(8).knob(7)
       .position({ x: 20, y: y1 + dy*2 })
       .range([0.5, 2.0])
@@ -301,6 +420,7 @@ export class DoublePendulumExplorable {
       .update(()=>{ this.params.L1 = L1S.value(); this.render(); });
     slidersSVG.appendChild(sliderElement(L1S));
 
+    // L2
     const L2S = slider().id('L2').label('L2').size(w - 40).girth(8).knob(7)
       .position({ x: 20, y: y1 + dy*3 })
       .range([0.5, 2.0])
@@ -309,6 +429,7 @@ export class DoublePendulumExplorable {
       .update(()=>{ this.params.L2 = L2S.value(); this.render(); });
     slidersSVG.appendChild(sliderElement(L2S));
 
+    // m1
     const m1S = slider().id('m1').label('m1').size(w - 40).girth(8).knob(7)
       .position({ x: 20, y: y1 + dy*4 })
       .range([0.1, 5.0])
@@ -317,6 +438,7 @@ export class DoublePendulumExplorable {
       .update(()=>{ this.params.m1 = m1S.value(); });
     slidersSVG.appendChild(sliderElement(m1S));
 
+    // m2
     const m2S = slider().id('m2').label('m2').size(w - 40).girth(8).knob(7)
       .position({ x: 20, y: y1 + dy*5 })
       .range([0.1, 5.0])
@@ -389,6 +511,10 @@ export class DoublePendulumExplorable {
     this._reseedEnsemble(true);
   }
 
+  reset(){
+    this._reseedEnsemble(true);
+    this.render();
+  }
   _reseedEnsemble(resetPaths=false){
     const base=this.initPose||{t1:Math.PI/2,t2:Math.PI/2,w1:0,w2:0};
     const s=this.o.spreadSigma;
@@ -398,11 +524,6 @@ export class DoublePendulumExplorable {
       p.w1=0; p.w2=0;
       if(resetPaths){ p.path.length=0; p.phHead=0; p.phCount=0; }
     }
-  }
-
-  reset(){
-    this._reseedEnsemble(true);
-    this.render();
   }
 
   _step(){
@@ -591,8 +712,6 @@ export class DoublePendulumExplorable {
   setLayout(layout='stack', controlsAt='end'){
     this.o.layout = layout;
     this.o.controlsAt = controlsAt;
-    this.wrap.classList.toggle('row', layout==='row');
-    this.wrap.classList.toggle('stack', layout!=='row');
-    this._applyLayoutOrder();
+    this._applyResponsiveSizing(false);
   }
 }

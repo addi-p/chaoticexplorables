@@ -7,8 +7,9 @@ export class ExplorableCard {
       ExplorableClass,
       title = 'Explorable',
       subtitle = '',
-      width = 260,         // inner rail width (px)
-      fitColumn = true,    // outer card spans container
+      width = 260,        // rail width when fluid = false
+      fluid = false,      // NEW: when true, rail is 100% (responsive)
+      fitColumn = true,   // outer card spans container
       explorable = {},
     } = cfg || {};
 
@@ -23,11 +24,15 @@ export class ExplorableCard {
     const card = document.createElement('section');
     card.className = 'explorable-card';
     if (fitColumn) card.style.width = '100%';
-    card.style.setProperty('--card-rail-width', `${width}px`);
+    if (fluid) {
+      card.dataset.fluid = 'true';
+    } else {
+      card.style.setProperty('--card-rail-width', `${width}px`);
+    }
     this.root.appendChild(card);
     this.card = card;
 
-    // Header chrome
+    // Header
     const header = document.createElement('div');
     header.className = 'explorable-card__header';
     card.appendChild(header);
@@ -44,7 +49,7 @@ export class ExplorableCard {
       header.appendChild(sub);
     }
 
-    // INNER rail (centered, fixed px width)
+    // INNER rail
     const rail = document.createElement('div');
     rail.className = 'explorable-card__rail';
     card.appendChild(rail);
@@ -54,7 +59,13 @@ export class ExplorableCard {
     rail.appendChild(slot);
 
     // Instantiate explorable into the slot
-    const exOpts = Object.assign({ width }, explorable || {});
+    const exOpts = Object.assign({}, explorable || {});
+    if (fluid) {
+      // let the explorable size itself to the rail (100%); it will measure
+      if (!('width' in exOpts)) exOpts.width = undefined;
+    } else {
+      if (!('width' in exOpts)) exOpts.width = width;
+    }
     this.exp = new ExplorableClass(slot, exOpts);
   }
 

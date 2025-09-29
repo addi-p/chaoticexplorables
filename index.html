@@ -6,20 +6,8 @@
   const card = new ExplorableCard('#card', {
     ExplorableClass: DoublePendulumExplorable,
     title:'',
-    width: 300, // scene(280) + phase(280) + controls(~220) + gaps(~20)
-    explorable: {
-      
-      width: 300,
-      layout:'stack',
-      controlsAt:'top',
-      sceneSize: 300,
-      phaseSize: 300,
-      showControls:true,
-      showPhasePlane:true,
-      showTrails:true,
-      showButtons:true,
-      transparent:true
-    }
+    width: 1000, // scene(280) + phase(280) + controls(~220) + gaps(~20)
+    explorable: { layout: 'row', controlsAt: 'end', showControls: true, showPhasePlane: true, showButtons: true, transparent: true }
   });
 
   card.play();

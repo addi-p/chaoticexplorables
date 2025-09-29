@@ -22,6 +22,8 @@
   margin: 0;
   padding: 0;
 }
+
+/* Default: fixed rail width via CSS var (centered) */
 .explorable-card__rail {
   width: var(--card-rail-width, 260px);
   max-width: 100%;
@@ -29,6 +31,12 @@
   margin-right: auto;
   background: transparent;
 }
+
+/* NEW: fluid rail (100% width) when data-fluid=true */
+.explorable-card[data-fluid="true"] .explorable-card__rail {
+  width: 100%;
+}
+
 .explorable-card__slot {
   width: 100%;
   background: transparent;
