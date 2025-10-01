@@ -34,7 +34,7 @@ function resizeCanvasToDisplaySize(cvs){
 const prefersDark = ()=> globalThis.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches;
 const strokeColor = ()=> (prefersDark() ? '#fff59d' : '#444');   // light yellow (dark) / dark gray (light)
 const axesColor   = ()=> '#94a3b8';
-const planeColor  = ()=> (prefersDark() ? '#e2e8f0' : '#475569');
+const planeColor  = ()=> (prefersDark() ? '#e2e8f0' : '#9b9b9bff');
 
 // ------------------------------- Attractors
 const ATTRACTORS = {
