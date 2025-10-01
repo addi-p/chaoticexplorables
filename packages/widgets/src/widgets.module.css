@@ -100,5 +100,6 @@
 }
 
 
-
-
+.widget.dropdown { margin: 6px 0; }
+.widget.dropdown .label { display:block; font: 12px/1.4 ui-sans-serif, system-ui; color: var(--color-text,#333); margin-bottom: 4px; }
+.widget.dropdown .control { width: 100%; padding: 6px 8px; font: 13px ui-sans-serif, system-ui; }

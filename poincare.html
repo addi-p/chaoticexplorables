@@ -1,0 +1,16 @@
+<div id="card" style="max-width:none; overflow:auto;"></div>
+<script type="module" is:inline>
+  import { ExplorableCard } from '/packages/core/src/ExplorableCard.js';
+  import { PoincareExplorable } from '/packages/poincare/src/index.js';
+
+  const card = new ExplorableCard('#card', {
+    ExplorableClass: PoincareExplorable,
+    title:'',
+    width: 1000,
+    explorable: { layout: 'stack', controlsAt: 'top', 
+    showControls: true, 
+    sceneSize:200,transparent: true }
+  });
+
+  card.play();
+</script>
