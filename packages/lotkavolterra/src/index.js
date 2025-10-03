@@ -63,10 +63,10 @@ export default class LVLatticeExplorable {
       controlsOverflow: "auto",                 // scrollbar if tight
       showSliders: true,
       canvasWidthPx: undefined,                 // canvas CSS width independent of rail
-      pxPerCellMin: 3,                          // crisp minimum
+      pxPerCellMin: 2,                          // crisp minimum
 
       // colors
-      colorEmpty: "#b0323200", colorPrey: "#27ce64ff", colorPred: "#d32b2bff",
+      colorEmpty: "#ffffffff", colorPrey: "#22c55e", colorPred: "#ef4444",
 
       // widget CSS
       widgetCssHref: new URL("../../widgets/src/widgets-plain.css", import.meta.url).href
