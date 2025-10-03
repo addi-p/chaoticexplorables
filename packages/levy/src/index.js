@@ -307,7 +307,7 @@ export class LevyExplorable {
     slidersSVG.appendChild(sliderElement(aS));
 
     // xmin (minimum step)
-    const xS = slider().id('xmin').label('x_min').size(w - 40).girth(8).knob(7)
+    const xS = slider().id('xmin').label('l_min').size(w - 40).girth(8).knob(7)
       .position({ x: 20, y: y1 + dy*1 })
       .range([0.2, 10])
       .value(this.o.xmin)
