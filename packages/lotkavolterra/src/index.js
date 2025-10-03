@@ -259,7 +259,7 @@ export default class LVLatticeExplorable {
     // Neighborhood one-toggle (off=von Neumann, on=Moore)
     this.neighToggle = toggle()
       .size(10).position({x:24,y:142})
-      .label("Moore neighborhood").labelposition("right")
+      .label("Moore").labelposition("right")
       .value(this.o.neighborhood==="Moore"?1:0)
       .update(()=>{ this.o.neighborhood = this.neighToggle.value() ? "Moore" : "vonNeumann"; });
     mountSVG(toggleElement(this.neighToggle));
