@@ -1,0 +1,22 @@
+<div id="card"></div>
+<script type="module" is:inline>
+  import { ExplorableCard } from '/packages/core/src/ExplorableCard.js';
+  import LVLatticeExplorable from '/packages/lotkavolterra/src/index.js';
+
+  new ExplorableCard('#card', {
+    ExplorableClass: LVLatticeExplorable,
+    title: '',
+    width: 900,                      // rail width (or use fluid:true)
+  fluid: false,
+  explorable: {
+    L: 140,
+    layout: 'row',
+    controlsAt: 'end',
+    controlsWidth: 400,            // baseline
+    controlsMinWidth: 250,         // stronger minimum
+    controlsPadding: 0,           // more bbox slack
+    controlsOverflow: 'auto',      // scrollbar if extremely tight
+    canvasWidthPx: 550             // canvas width independent of rail
+  }
+  });
+</script>
