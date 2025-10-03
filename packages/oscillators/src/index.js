@@ -569,7 +569,7 @@ export class OscillatorsExplorable {
     ctx.save();
     ctx.beginPath();
     ctx.lineWidth = 1;
-    ctx.strokeStyle = 'rgba(60,60,60,0.35)';
+    ctx.strokeStyle = '#2e73b8ff';
 
     // draw normalized arrows with capped pixel length
     const Lpx = 14; // arrow length in pixels
@@ -651,7 +651,7 @@ export class OscillatorsExplorable {
           if (!drew) { ctx.moveTo(X,Y); drew = true; } else { ctx.lineTo(X,Y); }
         }
       }
-      ctx.strokeStyle = 'hsl(210 60% 45%)';
+      ctx.strokeStyle = '#2e73b8ff';
       ctx.lineWidth = 5.8 * this.o.strokeScale;
       ctx.stroke();
 
