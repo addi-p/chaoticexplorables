@@ -1,7 +1,7 @@
 // /packages/lotkavolterra/src/LVLatticeExplorable.js
 // Agent-based Lotka–Volterra lattice (exclusive occupancy).
-// Safe & simple: robust error overlay, crisp pixels, correct play icon,
-// dropdown confined to rail, no clipping (row→column fallback).
+// Transparent canvas (alpha channel). Optional solid background via `canvasBackground`.
+// Crisp pixels, correct initial play icon, no controls clipping (row→column fallback).
 
 import button from "../../widgets/src/button.js";
 import buttonElement from "../../widgets/src/buttonElement.js";
@@ -27,21 +27,20 @@ function ensureWidgetsCSS(href) {
   }
 }
 
-function showError(mount, e) {
-  console.error(e);
-  const box = document.createElement("pre");
-  box.style.cssText = "background:#220;color:#fdd;padding:12px;white-space:pre-wrap;border:1px solid #400;border-radius:8px;font-size:12px;max-width:100%;overflow:auto;";
-  box.textContent = `LVLatticeExplorable error:\n${e?.stack || e}`;
-  mount.innerHTML = "";
-  mount.appendChild(box);
-}
-
 export default class LVLatticeExplorable {
   constructor(mount, opts = {}) {
     try {
       this._safeInit(mount, opts);
     } catch (e) {
-      showError(mount instanceof Element ? mount : document.querySelector(mount), e);
+      console.error(e);
+      const el = mount instanceof Element ? mount : document.querySelector(mount);
+      if (el) {
+        const box = document.createElement("pre");
+        box.style.cssText = "background:#220;color:#fdd;padding:12px;white-space:pre-wrap;border:1px solid #400;border-radius:8px;font-size:12px;max-width:100%;overflow:auto;";
+        box.textContent = `LVLatticeExplorable error:\n${e?.stack || e}`;
+        el.innerHTML = "";
+        el.appendChild(box);
+      }
     }
   }
 
@@ -55,7 +54,7 @@ export default class LVLatticeExplorable {
       predEat: 0.65, predBirth: 0.30, predMove: 0.25, predDie: 0.10,
 
       // layout & sizing
-      width: undefined,                         // rail width from ExplorableCard (if fixed)
+      width: undefined,                         // rail width (if card not fluid)
       layout: "row",                            // 'row' | 'column'
       controlsAt: "end",                        // 'start' | 'end'
       controlsWidth: 300,                       // target controls rail width
@@ -65,8 +64,13 @@ export default class LVLatticeExplorable {
       canvasWidthPx: undefined,                 // canvas CSS width independent of rail
       pxPerCellMin: 2,                          // crisp minimum
 
-      // colors
-      colorEmpty: "#ffffffff", colorPrey: "#22c55e", colorPred: "#ef4444",
+      // colors (prey/pred only; empty is transparent)
+      colorPrey: "#22c55e",
+      colorPred: "#ef4444",
+
+      // NEW: optional solid background for canvas (else fully transparent)
+      // Examples: "white", "#111827", "rgba(0,0,0,.5)"; null/undefined => transparent
+      canvasBackground: undefined,
 
       // widget CSS
       widgetCssHref: new URL("../../widgets/src/widgets-plain.css", import.meta.url).href
@@ -76,35 +80,35 @@ export default class LVLatticeExplorable {
 
     // ---------- roots ----------
     this.mount = mount;
+    const mountEl = (mount instanceof Element) ? mount : document.querySelector(mount);
+    if (!mountEl) throw new Error("LVLatticeExplorable: mount not found");
+
     this.root = document.createElement("div");
     this.root.style.cssText = "display:flex;gap:12px;align-items:flex-start;width:100%;";
     this.root.style.flexDirection = (this.o.layout === "column") ? "column" : "row";
-    const rootEl = (mount instanceof Element) ? mount : document.querySelector(mount);
-    if (!rootEl) throw new Error("LVLatticeExplorable: mount not found");
-    rootEl.appendChild(this.root);
+    mountEl.appendChild(this.root);
 
-    // Canvas area
+    // Canvas area (alpha:true for true transparency)
     this.visWrap = document.createElement("div");
     this.visWrap.style.cssText = "flex:1 1 auto;min-width:0;";
     this.canvas = document.createElement("canvas");
-    this.canvas.style.cssText = "display:block;image-rendering:pixelated;";
-    this.ctx = this.canvas.getContext("2d", { alpha:false });
+    this.canvas.style.cssText = "display:block;image-rendering:pixelated;background:transparent;";
+    this.ctx = this.canvas.getContext("2d", { alpha: true }); // <-- transparency enabled
     this.visWrap.appendChild(this.canvas);
 
     // Controls area
     this.controlsWrap = document.createElement("div");
     this.controlsWrap.className = "d3-widgets";
     this.controlsWrap.style.cssText = `flex:0 0 auto;display:flex;flex-direction:column;gap:8px;overflow:${this.o.controlsOverflow};`;
-    // Confine dropdown width to rail
-    this.ddHost = document.createElement("div");
-    this.ddHost.style.cssText = "max-width:100%;overflow:hidden;";
 
-    // Build SVG controls
     this.svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    // start with target width; we’ll adjust after paint
     this.svg.setAttribute("width", String(this.o.controlsWidth));
     this.svg.setAttribute("height", this.o.showSliders ? "380" : "160");
     this.controlsWrap.appendChild(this.svg);
+
+    // Constrain dropdown width to the controls column
+    this.ddHost = document.createElement("div");
+    this.ddHost.style.cssText = "max-width:100%;overflow:hidden;";
     this.controlsWrap.appendChild(this.ddHost);
 
     if (this.o.controlsAt === "start") { this.root.appendChild(this.controlsWrap); this.root.appendChild(this.visWrap); }
@@ -120,14 +124,12 @@ export default class LVLatticeExplorable {
     this.#resetField(this.o.init);
 
     // ---------- widgets ----------
-    this.#initWidgets();               // create controls
-    this.#setPlayButton(true);         // show PAUSE icon since we are playing
+    this.#initWidgets();
+    this.#setPlayButton(true); // show PAUSE icon since we start running
 
     // ---------- sizing ----------
     requestAnimationFrame(() => {
-      try {
-        this.#setupSizing();           // size once
-      } catch (e) { showError(rootEl, e); }
+      this.#setupSizing();
     });
 
     // ---------- loop ----------
@@ -176,6 +178,7 @@ export default class LVLatticeExplorable {
       }
     }
   }
+
   #tick(){
     const N=this.N;
     const {preyBirth,preyMove,predEat,predBirth,predMove,predDie}=this.o;
@@ -210,25 +213,56 @@ export default class LVLatticeExplorable {
     const tmp=this.grid; this.grid=this.next; this.next=tmp;
   }
 
-  /* ===== render ===== */
+  /* ===== render (transparent) ===== */
   #render(){
-    const N=this.N, scale=this.scale, ctx=this.ctx, canvas=this.canvas;
-    if(!this.raster||this.raster.width!==N||this.raster.height!==N){ this.raster=ctx.createImageData(N,N); }
-    const data=this.raster.data;
+    const N=this.N, scale=this.scale, ctx=this.ctx;
 
-    if(!this._rgbEmpty){
-      const toRGB=(hex)=>{ const h=hex.replace("#",""); const n=parseInt(h.length===3?h.split("").map(c=>c+c).join(""):h,16); return [(n>>16)&255,(n>>8)&255,n&255]; };
-      this._rgbEmpty=toRGB(this.o.colorEmpty); this._rgbPrey=toRGB(this.o.colorPrey); this._rgbPred=toRGB(this.o.colorPred);
+    if(!this.raster || this.raster.width !== N || this.raster.height !== N){
+      this.raster = ctx.createImageData(N, N); // transparent by default (all zeros)
     }
-    for(let i=0,p=0;i<N*N;i++,p+=4){ const s=this.grid[i]; const c=(s===0)?this._rgbEmpty:(s===1?this._rgbPrey:this._rgbPred); data[p]=c[0]; data[p+1]=c[1]; data[p+2]=c[2]; data[p+3]=255; }
+    const data = this.raster.data;
 
-    const tmp=document.createElement("canvas"); tmp.width=N; tmp.height=N; tmp.getContext("2d").putImageData(this.raster,0,0);
+    // parse colors once
+    if(!this._rgbPrey){
+      const toRGB=(hex)=>{ const h=hex.replace("#",""); const n=parseInt(h.length===3?h.split("").map(c=>c+c).join(""):h,16); return [(n>>16)&255,(n>>8)&255,n&255]; };
+      this._rgbPrey = toRGB(this.o.colorPrey);
+      this._rgbPred = toRGB(this.o.colorPred);
+    }
 
-    const dpr=Math.max(1,Math.floor(window.devicePixelRatio||1));
-    this.ctx.setTransform(dpr,0,0,dpr,0,0);
-    this.ctx.imageSmoothingEnabled=false;
-    this.ctx.clearRect(0,0,this.canvas.width,this.canvas.height);
-    this.ctx.drawImage(tmp,0,0,N,N,0,0,N*scale,N*scale);
+    // write pixels; empty cells are fully transparent (a=0)
+    for (let i=0, p=0; i<N*N; i++, p+=4) {
+      const s = this.grid[i];
+      if (s === 1) {
+        const c = this._rgbPrey;  data[p]=c[0]; data[p+1]=c[1]; data[p+2]=c[2]; data[p+3]=255;
+      } else if (s === 2) {
+        const c = this._rgbPred;  data[p]=c[0]; data[p+1]=c[1]; data[p+2]=c[2]; data[p+3]=255;
+      } else {
+        data[p]=0; data[p+1]=0; data[p+2]=0; data[p+3]=0; // empty → transparent
+      }
+    }
+
+    // draw via a 1× scale tmp then scale up crisply
+    const tmp = document.createElement("canvas");
+    tmp.width = N; tmp.height = N;
+    tmp.getContext("2d").putImageData(this.raster, 0, 0);
+
+    const dpr = Math.max(1, Math.floor(window.devicePixelRatio || 1));
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+
+    // clear to fully transparent
+    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+    // optional solid background
+    if (this.o.canvasBackground) {
+      ctx.save();
+      ctx.fillStyle = this.o.canvasBackground;
+      ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+      ctx.restore();
+    }
+
+    // paint the lattice
+    ctx.drawImage(tmp, 0, 0, N, N, 0, 0, N*scale, N*scale);
   }
 
   #loop(){
@@ -236,7 +270,7 @@ export default class LVLatticeExplorable {
     this._raf=requestAnimationFrame(tick);
   }
 
-  /* ===== controls ===== */
+  /* ===== widgets ===== */
   #initWidgets(){
     const mountSVG = (el) => this.svg.appendChild(el);
     const mountDOM = (el) => this.ddHost.appendChild(el);
@@ -259,7 +293,7 @@ export default class LVLatticeExplorable {
     // Neighborhood one-toggle (off=von Neumann, on=Moore)
     this.neighToggle = toggle()
       .size(10).position({x:24,y:142})
-      .label("Moore").labelposition("right")
+      .label("Moore neighborhood").labelposition("right")
       .value(this.o.neighborhood==="Moore"?1:0)
       .update(()=>{ this.o.neighborhood = this.neighToggle.value() ? "Moore" : "vonNeumann"; });
     mountSVG(toggleElement(this.neighToggle));
@@ -334,7 +368,7 @@ export default class LVLatticeExplorable {
     const layoutPass = () => {
       const railW = this.mount.getBoundingClientRect().width || 0;
 
-      // Desired controls width (stay within rail)
+      // desired controls width (stay within rail)
       let ctrlW = Math.max(this.o.controlsMinWidth, this.o.controlsWidth);
       ctrlW = Math.min(ctrlW, Math.max(this.o.controlsMinWidth, railW - minCanvasCss - gap));
 
