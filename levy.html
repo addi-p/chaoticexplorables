@@ -1,0 +1,26 @@
+<div id="card" style="max-width:none; overflow:auto;"></div>
+<script type="module" is:inline>
+  import { ExplorableCard } from '/packages/core/src/ExplorableCard.js';
+  import { LevyExplorable } from '/packages/levy/src/index.js';
+
+  const card = new ExplorableCard('#card', {
+    ExplorableClass: LevyExplorable,
+    title: '',
+    width: 520,
+    explorable: {
+      layout: 'row',
+      controlsAt: 'end',
+      transparent: true,
+      fitContainer: true,
+      trajectories: 12,
+      alpha: 1.6,
+      xmin: 1,
+      cap: 300,            // 0 or <=0 means Infinity inside the explorable
+      stepsPerSecond: 90,  // speed
+      zoomDelayMs: 500,
+      zoomDurationMs: 9000
+    }
+  });
+
+  card.play(); // calls LevyExplorable.play()
+</script>
