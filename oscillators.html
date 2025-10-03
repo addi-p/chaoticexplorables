@@ -1,0 +1,18 @@
+<div id="card" style="max-width:none; overflow:auto;"></div>
+<script type="module" is:inline>
+  import { ExplorableCard } from '/packages/core/src/ExplorableCard.js';
+  import { OscillatorsExplorable } from '/packages/oscillators/src/index.js';
+
+  const card = new ExplorableCard('#card', {
+    ExplorableClass: OscillatorsExplorable,
+    title: '',
+    width: 1000,
+    explorable: {
+      layout: 'row',
+      controlsAt: 'end',
+      
+    }
+  });
+
+  card.play(); // calls LevyExplorable.play()
+</script>
