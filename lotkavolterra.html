@@ -11,12 +11,19 @@
   explorable: {
     L: 140,
     layout: 'row',
-    controlsAt: 'end',
+    controlsAt: 'start',
     controlsWidth: 400,            // baseline
-    controlsMinWidth: 250,         // stronger minimum
-    controlsPadding: 0,           // more bbox slack
+    controlsMinWidth: 200,         // stronger minimum
+    controlsPadding: 10,           // more bbox slack
     controlsOverflow: 'auto',      // scrollbar if extremely tight
-    canvasWidthPx: 550             // canvas width independent of rail
+    canvasWidthPx: 550,             // canvas width independent of rail
+    rowGap: 5,
+    toggleGap: 5,
+    sliderGap: 5,
+    dropdownMaxWidth: 220,
+    controlsLeftPad: 15,
+    controlsTopPad: 18,
+    controlsBottomPad: -40
   }
   });
 </script>
