@@ -1,6 +1,6 @@
-// Logistic Map (time series + cobweb) — axes via options, KaTeX labels, fixed controls spacing
-// Minimal external deps: your widgets. No config files.
-// IMPORTANT: We include your CSS and KaTeX bootstraps here.
+// Logistic Map (time series + cobweb) — axes via options, KaTeX labels,
+// presets dropdown (KaTeX, mutation-observed), slider<->dropdown<->animation sync,
+// slider value readouts ABOVE each slider, and adaptive spacing with fontScale.
 
 // --- one-time CSS (plain tone) ------------------------------------------------
 (function ensureWidgetsCSS(){
@@ -16,7 +16,6 @@
 // --- KaTeX bootstrap (once) --------------------------------------------------
 async function ensureKaTeX() {
   if (window.katex) return window.katex;
-
   if (!document.getElementById('katex-css')) {
     const link = document.createElement('link');
     link.id = 'katex-css';
@@ -30,15 +29,19 @@ async function ensureKaTeX() {
 }
 
 // --- widgets -----------------------------------------------------------------
-import slider from '/packages/widgets/src/slider.js';
-import sliderElement from '/packages/widgets/src/sliderElement.js';
-import toggle from '/packages/widgets/src/toggle.js';
-import toggleElement from '/packages/widgets/src/toggleElement.js';
-import iconFor from '/packages/widgets/src/button-symbols.js';
+import { select } from '../../vendor/d3.mjs';
+import slider from '../../widgets/src/slider.js';
+import sliderElement from '../../widgets/src/sliderElement.js';
+import toggle from '../../widgets/src/toggle.js';
+import toggleElement from '../../widgets/src/toggleElement.js';
+import iconFor from '../../widgets/src/button-symbols.js';
+import dropdown from '../../widgets/src/dropdown.js';
+import dropdownElement from '../../widgets/src/dropdownElement.js';
 
 const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
 const f = (x, r) => r*x*(1-x);
 const iterate = (x0, r, N) => { const xs = new Array(N+1); xs[0]=x0; for(let i=0;i<N;i++) xs[i+1]=f(xs[i],r); return xs; };
+const fmt = (v)=> (Math.abs(v) < 1e-3 || Math.abs(v) >= 1e4) ? v.toExponential(2) : v.toFixed(3);
 
 function resizeCanvasToDisplaySize(cvs){
   const dpr = Math.max(1, devicePixelRatio||1);
@@ -51,20 +54,18 @@ function resizeCanvasToDisplaySize(cvs){
 
 function createSymbolButton(svg, { x, y, size=16, symbol='play', onClick }){
   const g = document.createElementNS('http://www.w3.org/2000/svg','g');
-  g.setAttribute('class', 'widget button');                    // <-- key: style hook
+  g.setAttribute('class', 'widget button');
   g.setAttribute('transform', `translate(${x},${y})`);
   svg.appendChild(g);
 
   const bg = document.createElementNS('http://www.w3.org/2000/svg','rect');
   bg.setAttribute('x', -size); bg.setAttribute('y', -size);
   bg.setAttribute('width', 2*size); bg.setAttribute('height', 2*size);
-  // bg.setAttribute('rx', Math.round(size*0.35));                 // subtle rounding
-  // bg.setAttribute('ry', Math.round(size*0.35));
-  bg.setAttribute('class', 'lit');                              // <-- styled by widgets css
+  bg.setAttribute('class', 'lit');
   g.appendChild(bg);
 
   const path = document.createElementNS('http://www.w3.org/2000/svg','path');
-  path.setAttribute('class', 'symbol');                         // <-- styled by widgets css
+  path.setAttribute('class', 'symbol');
   g.appendChild(path);
 
   const setSymbol = (name)=> path.setAttribute('d', iconFor(name)(size*0.75));
@@ -81,11 +82,26 @@ function createSymbolButton(svg, { x, y, size=16, symbol='play', onClick }){
   return { setSymbol };
 }
 
+// Auto-grow an SVG's height to fit contents (prevents clipping at larger fontScale)
+function _autoGrowSVG(svg, extra = 8){
+  try {
+    const bb = svg.getBBox();
+    const h = Math.ceil(bb.y + bb.height + extra);
+    if (h > 0) svg.setAttribute('height', h);
+  } catch { /* some browsers may not support getBBox until in DOM */ }
+}
+
 export default class LogisticExplorable {
   constructor(mount, opts={}){
-    // options: showAxes (bool), layout, controlsAt, sceneSize, N, showCobweb
+    // options: showAxes (bool), layout, controlsAt, sceneSize, N, showCobweb, fontScale
     this.o = Object.assign({
-      layout:'row', controlsAt:'end', sceneSize:360, N:160, showCobweb:true, showAxes:false
+      layout:'row',
+      controlsAt:'end',
+      sceneSize:360,
+      N:160,
+      showCobweb:true,
+      showAxes:false,
+      fontScale: 1.0
     }, opts);
 
     this.root = typeof mount==='string' ? document.querySelector(mount) : mount;
@@ -97,7 +113,7 @@ export default class LogisticExplorable {
     this.x0 = this.defaults.x0;
     this.running = false;
 
-    // layout CSS
+    // layout CSS (once)
     if (!document.getElementById('cx-logistic-layout-css')) {
       const style = document.createElement('style');
       style.id = 'cx-logistic-layout-css';
@@ -149,7 +165,7 @@ export default class LogisticExplorable {
     this.cobLabels  = { x: document.createElement('div'), y: document.createElement('div') };
     for (const el of Object.values(this.timeLabels).concat(Object.values(this.cobLabels))) {
       el.className = 'cx-axlabel';
-      el.style.fontSize = '13px';
+      el.style.fontSize = `${13 * this.o.fontScale}px`;
       el.style.color = 'var(--color-text,#222)';
       el.style.opacity = '0.95';
       el.style.willChange = 'transform';
@@ -170,84 +186,240 @@ export default class LogisticExplorable {
   /* controls */
   _buildControls(host){
     host.innerHTML = '';
-    const w = Math.max(240, this.o.sceneSize);      // give controls enough width
-    const toolbarH = 48;
-    const slidersH = 120;                           // more space to avoid clipping
-    const dy = 44;                                  // slider row spacing (bigger)
+    const FS = this.o.fontScale;
 
-    // toolbar
+    const w = Math.max(240, this.o.sceneSize);
+    const toolbarH = 48 * FS;
+    host.style.setProperty('--cx-fs', FS);
+
+    // --- PRESET DROPDOWN -----------------------------------------------------
+    const ddHost = document.createElement('div');
+    ddHost.style.display = 'block';
+    ddHost.style.width = `${w}px`;
+    ddHost.style.margin = `${6*FS}px 0 ${10*FS}px 0`;
+    host.appendChild(ddHost);
+
+    // Presets with KaTeX strings
+    const presets = [
+      { label: 'Extinction',  katex: '\\\\lambda < 1',            value: 0.8 },
+      { label: 'Equilibrium', katex: '\\\\lambda \\\\approx 2.5',  value: 2.5 },
+      { label: 'Period-2',    katex: '\\\\lambda \\\\approx 3.2',  value: 3.2 },
+      { label: 'Period-4',    katex: '\\\\lambda \\\\approx 3.5',  value: 3.5 },
+      { label: 'Period-3',    katex: '\\\\lambda \\\\approx 3.83', value: 3.83 },
+      { label: 'Chaos',       katex: '\\\\lambda \\\\approx 3.9',  value: 3.9 }
+    ];
+    // NOTE: Inside JS string literals in many bundlers, backslashes may need double-escaping (\\\\) to reach KaTeX.
+
+    const dd = dropdown()
+      .id('preset')
+      .label('Preset')
+      .options(presets.map(p => ({ label:p.label, value:p.value })))
+      .value(this.lambda)
+      .update(() => {
+        const λ = parseFloat(dd.value());
+        this.lambda = λ;
+        if (this._sliders && this._slidersSvgSel) {
+          this._sliders.lambda.reset(this._slidersSvgSel, λ); // moves knob + fires update()
+        }
+        this._updateValueTexts();
+        this.render();
+        this._katexifyDropdownLabels(this._presetEl, presets, true);
+      });
+
+    const ddEl = dropdownElement(dd);
+    ddHost.appendChild(ddEl);
+    this._preset = dd;
+    this._presetEl = ddEl;
+
+    // KaTeX render the dropdown labels + set up observers so it stays rendered
+    this._installDropdownKatex(ddEl, presets);
+
+    // --- toolbar --------------------------------------------------------------
     const toolbar = document.createElementNS('http://www.w3.org/2000/svg','svg');
     toolbar.setAttribute('width', w);
     toolbar.setAttribute('height', toolbarH);
-    toolbar.style.display='block';
-    toolbar.style.marginBottom = '8px';
+    toolbar.style.display = 'block';
+    toolbar.style.marginBottom = `${8*FS}px`;
+
+    // add horizontal padding so buttons aren't cut off
+    const padLeft = 8 * FS;   // NEW
+    toolbar.style.paddingLeft = `${padLeft}px`;
+    toolbar.style.overflow = 'visible';  // ensure nothing clips
+
     host.appendChild(toolbar);
 
     // play/pause
+    const xBase = padLeft;  // base offset for all buttons
+
 const playBtn = createSymbolButton(toolbar, {
-  x: 20, y: toolbarH/2, size: 16, symbol: this.running ? 'pause' : 'play',
+  x: xBase + 20, y: toolbarH / 2, size: 16 * FS,
+  symbol: this.running ? 'pause' : 'play',
   onClick: (_e, api) => {
-    // remember setter so programmatic play()/pause() can update the icon too
     this._setPlayIcon = api.setSymbol;
-    if (this.running) { this.pause(); }
-    else { this.play(); }
+    if (this.running) this.pause(); else this.play();
   }
 });
-// keep a reference even before first click
 this._setPlayIcon = playBtn.setSymbol;
 
 createSymbolButton(toolbar, {
-  x: 56, y: toolbarH/2, size: 16, symbol: 'reload',
+  x: xBase + 56 * FS, y: toolbarH / 2, size: 16 * FS, symbol: 'reload',
   onClick: () => {
-    this.pause();
-    this.lambda = this.defaults.lambda;
-    this.x0     = this.defaults.x0;
-    this._sliders?.lambda?.value(this.lambda);
-    this._sliders?.x0?.value(this.x0);
-    this._setPlayIcon?.('play'); // icon back to play
-    this.render();
-  }
-});
+        this.pause();
+        this.lambda = this.defaults.lambda;
+        this.x0     = this.defaults.x0;
+        if (this._sliders && this._slidersSvgSel) {
+          this._sliders.lambda.reset(this._slidersSvgSel, this.lambda);
+          this._sliders.x0.reset(this._slidersSvgSel, this.x0);
+        }
+        this._preset?.value(this.lambda); // sync dropdown
+        this._setPlayIcon?.('play');
+        this._updateValueTexts();
+        this.render();
+        this._katexifyDropdownLabels(this._presetEl, presets, true);
+      }
+    });
 
     // "Cobweb" toggle (right)
-    const cob = toggle().id('cob').size(10)
-      .position({ x: w - 22, y: toolbarH/2 })
+    const cob = toggle().id('cob').size(10 * FS)
+      .position({ x: w - 22 * FS, y: toolbarH/2 })
       .label(null)
       .value(this.o.showCobweb?1:0)
-      .update(()=>{ this.o.showCobweb = !!cob.value(); this.cobwebBox.classList.toggle('cx-hidden', !this.o.showCobweb); this._resizeAll(); });
+      .update(()=>{
+        this.o.showCobweb = !!cob.value();
+        this.cobwebBox.classList.toggle('cx-hidden', !this.o.showCobweb);
+        this._resizeAll();
+      });
     toolbar.appendChild(toggleElement(cob));
-    // little text under toggle
     const lbl = document.createElementNS('http://www.w3.org/2000/svg','text');
     lbl.textContent = 'Cobweb';
-    lbl.setAttribute('x', w - 22); lbl.setAttribute('y', toolbarH - 2);
-    lbl.setAttribute('font-size','12'); lbl.setAttribute('text-anchor','middle');
+    lbl.setAttribute('x', w - 22 * FS); lbl.setAttribute('y', toolbarH - 2 * FS);
+    lbl.setAttribute('font-size', `${12 * FS}`);
+    lbl.setAttribute('text-anchor','middle');
     lbl.setAttribute('fill','var(--color-text,#222)');
     toolbar.appendChild(lbl);
 
-    // sliders
+    // --- sliders (SVG) --------------------------------------------------------
     const ssvg = document.createElementNS('http://www.w3.org/2000/svg','svg');
     ssvg.setAttribute('width', w);
-    ssvg.setAttribute('height', slidersH);
+    ssvg.setAttribute('height', 160 * FS);
     ssvg.style.display='block';
-    ssvg.style.padding = '4px 0 2px 0';
+    ssvg.style.padding = `${4*FS}px 0 ${2*FS}px 0`;
     host.appendChild(ssvg);
+    this._slidersSvgSel = select(ssvg);
 
-    const trackX = 22, trackW = w - 44;
-    const sλ = slider().id('lambda').label('λ').size(trackW).girth(10).knob(8)
-      .position({ x: trackX, y: 20 })
+    // geometry scaled by FS
+    const trackX   = 22 * FS;
+    const trackW   = w - 44 * FS;
+    const rowDy    = 44 * FS;        // slider row spacing
+    const baseY    = 24 * FS;        // first track center
+    const labelGap = 12 * FS;        // label above track
+    const labelFS  = 12 * FS;
+
+    const mkTopLabel = (trackCenterY, initialText)=>{
+      const t = document.createElementNS('http://www.w3.org/2000/svg','text');
+      t.setAttribute('x', trackX);
+      t.setAttribute('y', trackCenterY - labelGap);
+      t.setAttribute('font-size', `${labelFS}`);
+      t.setAttribute('fill','var(--color-text,#222)');
+      t.setAttribute('dominant-baseline','ideographic');
+      t.setAttribute('text-anchor','start');
+      t.textContent = initialText;
+      ssvg.appendChild(t);
+      return t;
+    };
+
+    const sλ = slider().id('lambda').label(null).size(trackW).girth(10 * FS).knob(8 * FS)
+      .position({ x: trackX, y: baseY })
       .range([0,4])
       .value(this.lambda)
-      .update(()=>{ this.lambda = sλ.value(); if (!this.running) this.render(); });
+      .update(()=>{
+        this.lambda = sλ.value();
+        this._preset?.value(this.lambda);
+        this._updateValueTexts();
+        this.render();
+        this._katexifyDropdownLabels(this._presetEl, presets);
+      });
     ssvg.appendChild(sliderElement(sλ));
 
-    const sx0 = slider().id('x0').label('x₀').size(trackW).girth(10).knob(8)
-      .position({ x: trackX, y: 20 + dy })
+    const sx0 = slider().id('x0').label(null).size(trackW).girth(10 * FS).knob(8 * FS)
+      .position({ x: trackX, y: baseY + rowDy })
       .range([0,1])
       .value(this.x0)
-      .update(()=>{ this.x0 = sx0.value(); if (!this.running) this.render(); });
+      .update(()=>{
+        this.x0 = sx0.value();
+        this._updateValueTexts();
+        this.render();
+      });
     ssvg.appendChild(sliderElement(sx0));
 
+    this._labelText = {
+      lambda: mkTopLabel(baseY, `(λ: ${fmt(this.lambda)})`),
+      x0:     mkTopLabel(baseY + rowDy, `(x₀: ${fmt(this.x0)})`),
+    };
     this._sliders = { lambda: sλ, x0: sx0 };
+
+    requestAnimationFrame(()=> _autoGrowSVG(ssvg, 12 * FS));
+    this._updateValueTexts();
+  }
+
+  // Observe + render KaTeX inside dropdown so it always shows up
+  _installDropdownKatex(ddEl, presets){
+    // initial pass (two frames to ensure DOM is fully built)
+    requestAnimationFrame(()=> requestAnimationFrame(()=> this._katexifyDropdownLabels(ddEl, presets, true)));
+
+    // Re-render when user opens the dropdown or it gains focus
+    const poke = ()=> this._katexifyDropdownLabels(ddEl, presets, true);
+    ddEl.addEventListener('mousedown', poke);
+    ddEl.addEventListener('focusin', poke);
+
+    // Watch for internal DOM changes (menu open/close, option rebuild, selection)
+    const mo = new MutationObserver(()=> this._katexifyDropdownLabels(ddEl, presets));
+    mo.observe(ddEl, { childList:true, subtree:true, characterData:true });
+    this._ddObserver = mo;
+  }
+
+  // KaTeX-render the dropdown labels & the selected label area (robust to DOM changes)
+  async _katexifyDropdownLabels(ddEl, presets, includeSelected=false){
+    if (!ddEl) return;
+    const katex = await ensureKaTeX();
+    const FS = this.o.fontScale;
+
+    const renderLabel = (container, p)=>{
+      container.innerHTML = '';
+      const span = document.createElement('span');
+      span.style.whiteSpace = 'nowrap';
+      span.style.fontSize = `${13 * FS}px`;
+      katex.render(`${p.label}~( ${p.katex} )`, span, { throwOnError:false });
+      container.appendChild(span);
+    };
+
+    // option labels (try multiple classnames to be resilient to widget changes)
+    const optionNodes = ddEl.querySelectorAll(
+      '.cx-dropdown-option-label, .cx-dropdown-option, .cx-dd-option, .cx-option, [data-option-label]'
+    );
+    optionNodes.forEach(el=>{
+      const raw = el.textContent.trim();
+      const p = presets.find(pp => raw === pp.label || raw.startsWith(pp.label));
+      if (p) renderLabel(el, p);
+    });
+
+    // selected/closed label
+    if (includeSelected) {
+      const sel = ddEl.querySelector('.cx-dropdown-label, .cx-dd-label, .cx-selected-label, [data-selected-label]');
+      if (sel){
+        const raw = sel.textContent.trim();
+        const p = presets.find(pp => raw === pp.label || raw.startsWith(pp.label));
+        if (p) renderLabel(sel, p);
+      }
+    }
+  }
+
+  _updateValueTexts(){
+    if (!this._labelText) return;
+    const λ  = this._sliders?.lambda?.value?.() ?? this.lambda;
+    const x0 = this._sliders?.x0?.value?.()     ?? this.x0;
+    this._labelText.lambda.textContent = `(λ: ${fmt(λ)})`;
+    this._labelText.x0.textContent     = `(x₀: ${fmt(x0)})`;
   }
 
   /* sizing */
@@ -267,50 +439,37 @@ createSymbolButton(toolbar, {
   }
 
   async _positionAxisLabels(){
-  if (!this.o.showAxes) {
-    for (const el of [this.timeLabels.x,this.timeLabels.y,this.cobLabels.x,this.cobLabels.y]) el.style.display = 'none';
-    return;
+    if (!this.o.showAxes) {
+      for (const el of [this.timeLabels.x,this.timeLabels.y,this.cobLabels.x,this.cobLabels.y]) el.style.display = 'none';
+      return;
+    }
+    const katex = await ensureKaTeX();
+    const FS = this.o.fontScale;
+    const pad = 16 * FS;
+    const labelInset = 26 * FS;
+
+    this.timeLabels.x.innerHTML=''; katex.render('n', this.timeLabels.x);
+    this.timeLabels.y.innerHTML=''; katex.render('x_n', this.timeLabels.y);
+    this.cobLabels.x.innerHTML='';  katex.render('x_n', this.cobLabels.x);
+    this.cobLabels.y.innerHTML='';  katex.render('x_{n+1}', this.cobLabels.y);
+    for (const el of [this.timeLabels.x,this.timeLabels.y,this.cobLabels.x,this.cobLabels.y]) {
+      el.style.display = '';
+      el.style.fontSize = `${13 * FS}px`;
+    }
+
+    Object.assign(this.timeLabels.x.style, {
+      left: '50%', bottom: `${pad + labelInset}px`, top:'auto', right:'auto', transform: 'translate(-50%, 0)'
+    });
+    Object.assign(this.timeLabels.y.style, {
+      left: `${pad + labelInset}px`, top: '50%', transform: 'translate(0, -50%) rotate(-90deg)', transformOrigin: 'left top'
+    });
+    Object.assign(this.cobLabels.x.style, {
+      left: '50%', bottom: `${pad + labelInset}px`, top:'auto', transform: 'translate(-50%, 0)'
+    });
+    Object.assign(this.cobLabels.y.style, {
+      left: `${pad + labelInset}px`, top: '50%', transform: 'translate(0, -50%) rotate(-90deg)', transformOrigin: 'left top'
+    });
   }
-  const katex = await ensureKaTeX();
-  const pad = 16;
-  const labelInset = 26;   // farther in than numbers (6 tick + 4 gap + ~16 text ≈ 26 looks nice)
-
-  // render
-  this.timeLabels.x.innerHTML=''; katex.render('n', this.timeLabels.x);
-  this.timeLabels.y.innerHTML=''; katex.render('x_n', this.timeLabels.y);
-  this.cobLabels.x.innerHTML='';  katex.render('x_n', this.cobLabels.x);
-  this.cobLabels.y.innerHTML='';  katex.render('x_{n+1}', this.cobLabels.y);
-  for (const el of [this.timeLabels.x,this.timeLabels.y,this.cobLabels.x,this.cobLabels.y]) el.style.display = '';
-
-  // place inside the plot
-  // time-series:
-  Object.assign(this.timeLabels.x.style, {
-    left: '50%',
-    bottom: `${pad + labelInset}px`,   // inside
-    top: 'auto', right: 'auto',
-    transform: 'translate(-50%, 0)'
-  });
-  Object.assign(this.timeLabels.y.style, {
-    left: `${pad + labelInset}px`,     // inside
-    top: '50%',
-    transform: 'translate(0, -50%) rotate(-90deg)',
-    transformOrigin: 'left top'
-  });
-
-  // cobweb:
-  Object.assign(this.cobLabels.x.style, {
-    left: '50%',
-    bottom: `${pad + labelInset}px`,
-    top: 'auto',
-    transform: 'translate(-50%, 0)'
-  });
-  Object.assign(this.cobLabels.y.style, {
-    left: `${pad + labelInset}px`,
-    top: '50%',
-    transform: 'translate(0, -50%) rotate(-90deg)',
-    transformOrigin: 'left top'
-  });
-}
 
   /* drawing helpers */
   _strokeRect(ctx, cssW, cssH){
@@ -320,82 +479,56 @@ createSymbolButton(toolbar, {
   }
 
   _drawAxesTicks01(ctx, cssW, cssH){
-  const pad = 16, W = cssW - 2*pad, H = cssH - 2*pad;
-  const toX = (x)=> pad + W*x;
-  const toY = (y)=> cssH - pad - H*y;
+    const FS = this.o.fontScale;
+    const pad = 16 * FS, W = cssW - 2*pad, H = cssH - 2*pad;
+    const tick = 6 * FS;
+    const numGap = 4 * FS;
 
-  // 1) TICKS (inward)
-  ctx.strokeStyle = 'rgba(127,127,127,0.85)';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  for (let t=0; t<=1.0001; t+=0.2){
-    // x ticks up from bottom border
-    ctx.moveTo(toX(t), cssH - pad);
-    ctx.lineTo(toX(t), cssH - pad - 6);
-    // y ticks right from left border
-    ctx.moveTo(pad, toY(t));
-    ctx.lineTo(pad + 6, toY(t));
+    const toX = (x)=> pad + W*x;
+    const toY = (y)=> cssH - pad - H*y;
+
+    ctx.strokeStyle = 'rgba(127,127,127,0.85)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let t=0; t<=1.0001; t+=0.2){
+      ctx.moveTo(toX(t), cssH - pad); ctx.lineTo(toX(t), cssH - pad - tick);
+      ctx.moveTo(pad, toY(t));        ctx.lineTo(pad + tick, toY(t));
+    }
+    ctx.stroke();
+
+    ctx.fillStyle = 'rgba(60,60,60,0.95)';
+    ctx.font = `${12 * FS}px system-ui, sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    for (let t=0; t<=1.0001; t+=0.2) ctx.fillText(t.toFixed(1), toX(t), cssH - pad - tick - numGap);
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    for (let t=0; t<=1.0001; t+=0.2) ctx.fillText(t.toFixed(1), pad + tick + numGap, toY(t));
   }
-  ctx.stroke();
-
-  // 2) NUMBERS (just inside)
-  ctx.fillStyle = 'rgba(60,60,60,0.95)';
-  ctx.font = '12px system-ui, sans-serif';
-
-  // x numbers just above the bottom border
-  ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-  for (let t=0; t<=1.0001; t+=0.2){
-    ctx.fillText(t.toFixed(1), toX(t), cssH - pad - 6 - 4);
-  }
-
-  // y numbers just to the right of the left border
-  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-  for (let t=0; t<=1.0001; t+=0.2){
-    ctx.fillText(t.toFixed(1), pad + 6 + 4, toY(t));
-  }
-}
 
   _drawAxesTicksTime(ctx, cssW, cssH){
-  const pad = 16, W = cssW - 2*pad, H = cssH - 2*pad;
-  const N = this.o.N;
-  const toX = (n)=> pad + (W * n / N);
-  const toY = (y)=> cssH - pad - H*y;
+    const FS = this.o.fontScale;
+    const pad = 16 * FS, W = cssW - 2*pad, H = cssH - 2*pad;
+    const tick = 6 * FS;
+    const numGap = 4 * FS;
+    const N = this.o.N;
 
-  // 1) TICKS (inward)
-  ctx.strokeStyle = 'rgba(127,127,127,0.85)';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  // y ticks: rightward from left border
-  for (let y=0; y<=1.0001; y+=0.2){
-    const Y = toY(y);
-    ctx.moveTo(pad, Y);           // border
-    ctx.lineTo(pad + 6, Y);       // into plot
-  }
-  // x ticks: upward from bottom border
-  const step = Math.max(1, Math.round(N/6));
-  for (let n=0; n<=N; n+=step){
-    const X = toX(n);
-    ctx.moveTo(X, cssH - pad);          // border
-    ctx.lineTo(X, cssH - pad - 6);      // into plot
-  }
-  ctx.stroke();
+    const toX = (n)=> pad + (W * n / N);
+    const toY = (y)=> cssH - pad - H*y;
 
-  // 2) NUMBERS (just inside, after ticks)
-  ctx.fillStyle = 'rgba(60,60,60,0.95)';
-  ctx.font = '12px system-ui, sans-serif';
+    ctx.strokeStyle = 'rgba(127,127,127,0.85)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let y=0; y<=1.0001; y+=0.2){ const Y = toY(y); ctx.moveTo(pad, Y); ctx.lineTo(pad + tick, Y); }
+    const step = Math.max(1, Math.round(N/6));
+    for (let n=0; n<=N; n+=step){ const X = toX(n); ctx.moveTo(X, cssH - pad); ctx.lineTo(X, cssH - pad - tick); }
+    ctx.stroke();
 
-  // x numbers: inside above the border
-  ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-  for (let n=0; n<=N; n+=step){
-    ctx.fillText(String(n), toX(n), cssH - pad - 6 - 4);
+    ctx.fillStyle = 'rgba(60,60,60,0.95)';
+    ctx.font = `${12 * FS}px system-ui, sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    for (let n=0; n<=N; n+=step) ctx.fillText(String(n), toX(n), cssH - pad - tick - numGap);
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    for (let y=0; y<=1.0001; y+=0.2) ctx.fillText(y.toFixed(1), pad + tick + numGap, toY(y));
   }
-
-  // y numbers: inside to the right of the border
-  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-  for (let y=0; y<=1.0001; y+=0.2){
-    ctx.fillText(y.toFixed(1), pad + 6 + 4, toY(y));
-  }
-}
 
   /* renders */
   _renderTime(){
@@ -404,12 +537,12 @@ createSymbolButton(toolbar, {
     ctx.setTransform(dpr,0,0,dpr,0,0);
     ctx.clearRect(0,0,cssW,cssH);
 
-    const pad = 16, W = cssW - 2*pad, H = cssH - 2*pad;
-    // axes + ticks
     if (this.o.showAxes) this._drawAxesTicksTime(ctx, cssW, cssH);
     this._strokeRect(ctx, cssW, cssH);
 
-    // series x_n vs n
+    const FS = this.o.fontScale;
+    const pad = 16 * FS, W = cssW - 2*pad, H = cssH - 2*pad;
+
     const xs = iterate(this.x0, this.lambda, this.o.N);
     const toX = (n)=> pad + (W * n / this.o.N);
     const toY = (x)=> cssH - pad - H * clamp(x,0,1);
@@ -420,7 +553,7 @@ createSymbolButton(toolbar, {
       if (!moved) { ctx.moveTo(X,Y); moved=true; } else ctx.lineTo(X,Y);
     }
     ctx.strokeStyle = '#2e73b8ff';
-    ctx.lineWidth = 4; ctx.stroke();
+    ctx.lineWidth = 2; ctx.stroke();
   }
 
   _renderCobweb(){
@@ -430,12 +563,12 @@ createSymbolButton(toolbar, {
     ctx.setTransform(dpr,0,0,dpr,0,0);
     ctx.clearRect(0,0,cssW,cssH);
 
-    const pad = 16, W = cssW - 2*pad, H = cssH - 2*pad;
-    const toX = (x)=> pad + W*x, toY = (y)=> cssH - pad - H*y;
-
-    // axes + ticks
     if (this.o.showAxes) this._drawAxesTicks01(ctx, cssW, cssH);
     this._strokeRect(ctx, cssW, cssH);
+
+    const FS = this.o.fontScale;
+    const pad = 16 * FS, W = cssW - 2*pad, H = cssH - 2*pad;
+    const toX = (x)=> pad + W*x, toY = (y)=> cssH - pad - H*y;
 
     // diagonal y=x
     ctx.strokeStyle = 'rgba(127,127,127,0.9)';
@@ -450,7 +583,7 @@ createSymbolButton(toolbar, {
       i?ctx.lineTo(X,Y):ctx.moveTo(X,Y);
     }
     ctx.strokeStyle='hsl(210 60% 45%)';
-    ctx.lineWidth=3; ctx.stroke();
+    ctx.lineWidth=2; ctx.stroke();
 
     // cobweb from x0
     let x=this.x0;
@@ -471,23 +604,40 @@ createSymbolButton(toolbar, {
   render(){ this._renderTime(); this._renderCobweb(); }
 
   play(){
-  if (this.running) return;
-  this.running = true;
-  this._setPlayIcon?.('pause');        // <-- keep icon in sync
-  const loop = ()=>{
-    if (!this.running) return;
-    this.lambda += 0.002;
-    if (this.lambda > 4) this.lambda = 0;
-    this._sliders?.lambda?.value(this.lambda);
-    this.render();
-    requestAnimationFrame(loop);
-  };
-  requestAnimationFrame(loop);
-}
+    if (this.running) return;
+    this.running = true;
+    this._setPlayIcon?.('pause');
 
-pause(){
-  if (!this.running) return;
-  this.running = false;
-  this._setPlayIcon?.('play');         // <-- keep icon in sync
-}
+    const tick = ()=>{
+      if (!this.running) return;
+      let λ = (this._sliders?.lambda?.value() ?? this.lambda);
+      λ += 0.002;
+      if (λ > 4) λ = 0;
+
+      if (this._sliders && this._slidersSvgSel) {
+        this._sliders.lambda.reset(this._slidersSvgSel, λ);
+      } else {
+        this.lambda = λ;
+        this.render();
+      }
+      this._preset?.value(this.lambda);
+      this._updateValueTexts();
+      this._katexifyDropdownLabels(this._presetEl, [
+        { label: 'Extinction',  katex: '\\\\lambda < 1' },
+        { label: 'Equilibrium', katex: '\\\\lambda \\\\approx 2.5' },
+        { label: 'Period-2',    katex: '\\\\lambda \\\\approx 3.2' },
+        { label: 'Period-4',    katex: '\\\\lambda \\\\approx 3.5' },
+        { label: 'Period-3',    katex: '\\\\lambda \\\\approx 3.83' },
+        { label: 'Chaos',       katex: '\\\\lambda \\\\approx 3.9' }
+      ], true);
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
+
+  pause(){
+    if (!this.running) return;
+    this.running = false;
+    this._setPlayIcon?.('play');
+  }
 }

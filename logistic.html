@@ -17,15 +17,16 @@
   const card = new ExplorableCard('#card', {
     ExplorableClass: LogisticExplorable,
     title: '',
-    width: 900,
+    width: 800,
     explorable: {
       layout: 'stack',
       controlsAt: 'top',
-      sceneSize: 360,
-      N: 160,
+      sceneSize: 600,
+      N: 80,
       play:false,
+      fontScale: 2.,  // ← global font scaling
       showCobweb: true,
-      showAxes: true    // ← enable axes + KaTeX labels via options
+      showAxes: true    
     }
   });
 
