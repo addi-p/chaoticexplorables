@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<meta charset="utf-8" />
+<title>Logistic Explorable (with Axes)</title>
+<style>
+  html, body { margin: 0; padding: 0; }
+  #card { max-width: none; overflow: auto; padding: 12px; }
+</style>
+
+<div id="card"></div>
+
+<script type="module">
+  import { ExplorableCard } from '/packages/core/src/ExplorableCard.js';
+  import LogisticExplorable from '/packages/logistic/src/index.js';
+
+  // KaTeX/css bootstrap happens inside index.js.
+  // Turn axes on HERE (no buttons needed).
+  const card = new ExplorableCard('#card', {
+    ExplorableClass: LogisticExplorable,
+    title: '',
+    width: 900,
+    explorable: {
+      layout: 'stack',
+      controlsAt: 'top',
+      sceneSize: 360,
+      N: 160,
+      play:false,
+      showCobweb: true,
+      showAxes: true    // ← enable axes + KaTeX labels via options
+    }
+  });
+
+</script>
