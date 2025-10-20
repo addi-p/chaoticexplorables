@@ -1,0 +1,52 @@
+<div id="card" style="max-width:none; overflow:auto;"></div>
+
+<script type="module">
+  import { ExplorableCard } from '/packages/core/src/ExplorableCard.js';
+  // RDExplorable is the default export from /packages/reactiondiffusion/src/index.js
+  import RDExplorable from '/packages/reactiondiffusion/src/index.js';
+
+  new ExplorableCard('#card', {
+    ExplorableClass: RDExplorable,
+    title: 'Gray–Scott Reaction–Diffusion (WebGL)',
+    width: 900,            // rail width when fluid=false (content width of right column)
+    fluid: false,
+    fitColumn: true,
+    explorable: {
+      // visuals: two equal square canvases
+      canvasSizePx: 500,
+      layout: 'row',        // or 'column'
+      // control rail sizing + spacing (these eliminate the clipping you saw)
+      railWidth: 400,
+      railMinWidth: 400,
+      padX: 22,
+      padTop: 20,
+      padBottom: 18,
+      groupGap: 50,
+      rowGap: 20,
+      sliderGap: 20,
+      dropdownMaxWidth: 270,
+
+      // physics (good defaults that immediately form patterns)
+      N: 224,
+      Du: 0.16, Dv: 0.08,
+      F: 0.035, k: 0.065,
+      dt: 1.0,
+      stepsPerFrame: 8,
+      brushRadius: 12,
+
+      // colormap
+      colormap: 'viridis',
+
+      // feed–kill map (PNG you mentioned)
+      paramMap: {
+        src: '/packages/reactiondiffusion/src/karl-sims-parameter-map_transparent.png',
+        Fmin: 0.0, Fmax: 0.08,
+        kmin: 0.0, kmax: 0.09,
+        flipF: true,   // set to true if your PNG’s feed increases to the LEFT
+        flipK: true ,    // set to false if your PNG’s kill increases DOWNWARD
+        // extra inner padding so the “F=…, k=…” label never clips
+        crossPad: 2
+      }
+    }
+  });
+</script>

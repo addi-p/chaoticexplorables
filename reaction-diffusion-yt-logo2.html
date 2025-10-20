@@ -1,0 +1,82 @@
+<div id="card" style="max-width:none; overflow:auto;"></div>
+<script type="module">
+  import { ExplorableCard } from '/packages/core/src/ExplorableCard.js';
+  import RDLogoExplorable from '/packages/reactiondiffusion_yt_intro/src/index.js';
+
+  new ExplorableCard('#card', {
+    ExplorableClass: RDLogoExplorable,
+    title: '',
+    width: 2600,
+    fluid: false,
+    fitColumn: true,
+    explorable: {
+      // ── visuals & layout (unchanged as requested)
+      canvasSizePx: 900,         // display size of main canvas
+      layout: 'row',
+      railWidth: 800,
+      railMinWidth: 800,
+      sliderColumns: 3,
+      sliderColGap: 20,
+      padX: 30,
+      padTop: 20,
+      padBottom: 18,
+      groupGap: 40,
+      rowGap: 10,
+      sliderGap: 20,
+      sliderSizePx: 160,
+      dropdownMaxWidth: 300,
+
+      // ── parameter map
+      paramMap: {
+        src: '/packages/reactiondiffusion/src/karl-sims-parameter-map_transparent.png',
+        Fmin: 0.0, Fmax: 0.08, kmin: 0.0, kmax: 0.09,
+        flipF: false, flipK: true,           // you wanted k flipped
+        crossPad: 2
+      },
+
+      // ── physics (hi-res sim; you can tweak these live)
+      N: 2048,                 // 1024*2
+      Du: 0.2097,
+      Dv: 0.1050,
+      F: 0.0540,
+      k: 0.0620,
+      dt: 0.8,
+      stepsPerFrame: 10,
+      brushRadius: 14,
+      looseness: 5.0,          // 1.0 = current look; 1.3–2.0 → larger worms
+      laplacian: "five",       // "five" (4-neighbor) or "nine" (current 3×3)
+
+      // ── color
+      colormap: 'viridis',
+      colorBrightness: 1.45,
+      colorGamma: 0.82,
+
+      // ── seeding defaults
+      seedSource: 'png',                // start in PNG mode
+      seedInvert: 'auto',               // auto-invert if the PNG’s border looks filled
+      seedFlipY: true,
+      text: 'SynoSys',
+      font: '800 140px system-ui, -apple-system, Segoe UI, Roboto, sans-serif',
+      textFill: '#000000',
+
+      // ── outline precision knobs (tweak here for sharper/looser edges)
+      
+      seedPrecisionScale: 6,            // supersample factor (e.g., 4–8)
+      seedPreBlurPx: 2.4,               // small pre-blur to tame jaggies
+      seedAdaptiveTiles: 12,            // finer local threshold
+      seedAdaptiveOffset: -0.01,        // gentler bias
+      seedEdgeBandPx: 1.2,              // thin activation band around outline
+      seedEdgeHardness: 1.8,            // steeper edge curve
+      seedInsideGrowPx: 1.0,            // grow the filled region a touch
+      seedScale: .8,
+      seedRotationDeg: 0,
+
+      // ── recording
+      exportFPS: 60,
+      exportFPS: 60,
+      exportCanvasPx: 2048,   // 2K video
+      
+      aspect169: false,   // new: when true, canvas becomes 16:9 (no stretching; sim is aspect-fit)
+    }
+  });
+</script>

@@ -1,0 +1,84 @@
+<div id="card" style="max-width:none; overflow:auto;"></div>
+<script type="module">
+  import { ExplorableCard } from '/packages/core/src/ExplorableCard.js';
+  import RDLogoExplorable from '/packages/reactiondiffusion_yt_intro/src/index.js';
+
+  new ExplorableCard('#card', {
+    ExplorableClass: RDLogoExplorable,
+    title: '',
+    width: 2600,
+    fluid: false,
+    fitColumn: true,
+    explorable: {
+      // ── visuals & layout (unchanged)
+      canvasSizePx: 900,
+      layout: 'row',
+      railWidth: 800,
+      railMinWidth: 800,
+      sliderColumns: 3,
+      sliderColGap: 20,
+      padX: 30,
+      padTop: 20,
+      padBottom: 18,
+      groupGap: 40,
+      rowGap: 10,
+      sliderGap: 20,
+      sliderSizePx: 160,
+      dropdownMaxWidth: 300,
+
+      // ── parameter map (x = k, y = F)
+      paramMap: {
+        src: '/packages/reactiondiffusion/src/karl-sims-parameter-map_transparent.png',
+        kmin: 0.029, kmax: 0.69,   // x-axis range
+        Fmin: 0.00,  Fmax: 0.10,   // y-axis range
+        flipX: false,              // flip if your PNG requires it
+        flipY: true,               // keep “larger F” upward
+        crossPad: 2
+      },
+
+      // ── physics (defaults you can tweak live)
+      N: 2048*8,              // hi-res sim grid
+      Du: 0.22,             // within [0.20, 0.25]
+      Dv: 0.12,             // within [0.01, 0.80]
+      F:  0.055,            // within [0.00, 0.10]
+      k:  0.062,            // within [0.029, 0.69]
+      dt: 0.9,
+      stepsPerFrame: 10,
+      brushRadius: 14,
+
+      // ── worm thickness control
+      // Larger = thicker, smoother bands (internally scales Laplacian)
+      wormSize: 1.6,        // try 1.5–2.2 for “thick Karl Sims” look
+      laplacian:'nine',
+      // ── color
+      colormap: 'viridis',
+      colorBrightness: 1.45,
+      colorGamma: 0.82,
+
+      // ── seed (PNG or Text)
+      seedSource: 'png',             // start in PNG mode
+      seedInvert: 'auto',
+      seedFlipY: true,
+      text: 'SynoSys',
+      font: '800 140px system-ui, -apple-system, Segoe UI, Roboto, sans-serif',
+      textFill: '#000000',
+      seedScale: 1.0,
+      seedRotationDeg: 0,
+
+      // ── outline precision (for cleaner edges on text/logo)
+      seedPrecisionScale: 6,
+      seedPreBlurPx: 2.4,
+      seedAdaptiveTiles: 12,
+      seedAdaptiveOffset: -0.01,
+      seedEdgeBandPx: 1.2,
+      seedEdgeHardness: 1.8,
+      seedInsideGrowPx: 1.0,
+
+      // ── recording
+      exportFPS: 60,
+      exportCanvasPx: 2160*2,   // 2K video
+      exportN: 2048*8,          // denser sim grid for more detail
+      
+    }
+  });
+</script>

@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Lorenz Manifolds – ExplorableCard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+</head>
+<body>
+  <div id="card"></div>
+
+  <script type="module" is:inline>
+    import { ExplorableCard } from '/packages/core/src/ExplorableCard.js';
+    import LorenzManifoldsExplorable from '/packages/manifoldslice/src/index.js';
+
+    new ExplorableCard('#card', {
+      ExplorableClass: LorenzManifoldsExplorable,
+      title: '',
+      width: 900,
+      fluid: false,
+      explorable: {
+        layout: 'row',
+        controlsAt: 'start',
+        controlsWidth: 400,
+        controlsMinWidth: 200,
+        controlsPadding: 10,
+        controlsOverflow: 'auto',
+        canvasWidthPx: 550,
+        rowGap: 5,
+        toggleGap: 5,
+        sliderGap: 5,
+        dropdownMaxWidth: 220,
+        controlsLeftPad: 15,
+        controlsTopPad: 18,
+        controlsBottomPad: -40
+      }
+    });
+  </script>
+</body>
+</html>
