@@ -1665,7 +1665,7 @@ class RDLogoExplorable {
     }
 
     this.#drawCrosshair();
-    if(this.running && warm>0){ for(let i=0;i<warm;i++) this.#step(); }
+    if(this.running && warm>=0){ for(let i=0;i<warm;i++) this.#step(); }
   }
 
   #syncRunBtn(on){ try{ this.playBtn?.value(on?1:0); this.playBtn?.update?.(); }catch{} }
