@@ -1,6 +1,7 @@
 // Logistic Map (time series + cobweb) — axes via options, KaTeX labels,
 // presets dropdown (KaTeX, mutation-observed), slider<->dropdown<->animation sync,
-// slider value readouts ABOVE each slider, and adaptive spacing with fontScale.
+// slider value readouts ABOVE each slider, adaptive spacing with fontScale,
+// and LIGHT/DARK theme for axes, labels, and borders.
 
 // --- one-time CSS (plain tone) ------------------------------------------------
 (function ensureWidgetsCSS(){
@@ -11,6 +12,29 @@
     link.href = new URL('../../widgets/src/widgets-plain.css', import.meta.url).toString();
     document.head.appendChild(link);
   }
+})();
+
+// --- light/dark axis colors (CSS vars) ---------------------------------------
+(function ensureAxisCSS(){
+  const id = 'cx-axis-theme';
+  if (document.getElementById(id)) return;
+  const style = document.createElement('style');
+  style.id = id;
+  style.textContent = `
+    :root {
+      --axis-text:    #222;
+      --axis-stroke:  rgba(127,127,127,0.85);
+      --color-border: #c9c9c9;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --axis-text:    #fff;
+        --axis-stroke:  rgba(220,220,220,0.9);
+        --color-border: #5b5b5b;
+      }
+    }
+  `;
+  document.head.appendChild(style);
 })();
 
 // --- KaTeX bootstrap (once) --------------------------------------------------
@@ -123,7 +147,7 @@ export default class LogisticExplorable {
         .cx-log-wrap.row { flex-direction:row; flex-wrap:nowrap; }
         .cx-log-view { line-height:0; position:relative; }
         .cx-log-view canvas { border:1px solid var(--color-border,#c9c9c9); background:transparent; }
-        .cx-axlabel { position:absolute; pointer-events:none; }
+        .cx-axlabel { position:absolute; pointer-events:none; color: var(--axis-text,#222); }
         .cx-hidden { display:none !important; }
         .cx-controls { display:block; }
       `;
@@ -166,7 +190,6 @@ export default class LogisticExplorable {
     for (const el of Object.values(this.timeLabels).concat(Object.values(this.cobLabels))) {
       el.className = 'cx-axlabel';
       el.style.fontSize = `${13 * this.o.fontScale}px`;
-      el.style.color = 'var(--color-text,#222)';
       el.style.opacity = '0.95';
       el.style.willChange = 'transform';
     }
@@ -177,6 +200,13 @@ export default class LogisticExplorable {
     this._buildControls(this.controlsBox);
     this._resizeAll();
     this.render();
+
+    // live theme updates
+    if (globalThis.matchMedia) {
+      this._themeMedia = matchMedia('(prefers-color-scheme: dark)');
+      this._themeListener = () => this.render();
+      this._themeMedia.addEventListener?.('change', this._themeListener);
+    }
 
     // responsive
     this._ro = new ResizeObserver(()=> this._resizeAll());
@@ -208,7 +238,7 @@ export default class LogisticExplorable {
       { label: 'Period-3',    katex: '\\\\lambda \\\\approx 3.83', value: 3.83 },
       { label: 'Chaos',       katex: '\\\\lambda \\\\approx 3.9',  value: 3.9 }
     ];
-    // NOTE: Inside JS string literals in many bundlers, backslashes may need double-escaping (\\\\) to reach KaTeX.
+    // NOTE: Inside JS string literals, backslashes are double-escaped to reach KaTeX.
 
     const dd = dropdown()
       .id('preset')
@@ -242,28 +272,28 @@ export default class LogisticExplorable {
     toolbar.style.marginBottom = `${8*FS}px`;
 
     // add horizontal padding so buttons aren't cut off
-    const padLeft = 8 * FS;   // NEW
+    const padLeft = 8 * FS;
     toolbar.style.paddingLeft = `${padLeft}px`;
-    toolbar.style.overflow = 'visible';  // ensure nothing clips
+    toolbar.style.overflow = 'visible';
 
     host.appendChild(toolbar);
 
     // play/pause
-    const xBase = padLeft;  // base offset for all buttons
+    const xBase = padLeft;
 
-const playBtn = createSymbolButton(toolbar, {
-  x: xBase + 20, y: toolbarH / 2, size: 16 * FS,
-  symbol: this.running ? 'pause' : 'play',
-  onClick: (_e, api) => {
-    this._setPlayIcon = api.setSymbol;
-    if (this.running) this.pause(); else this.play();
-  }
-});
-this._setPlayIcon = playBtn.setSymbol;
+    const playBtn = createSymbolButton(toolbar, {
+      x: xBase + 20, y: toolbarH / 2, size: 16 * FS,
+      symbol: this.running ? 'pause' : 'play',
+      onClick: (_e, api) => {
+        this._setPlayIcon = api.setSymbol;
+        if (this.running) this.pause(); else this.play();
+      }
+    });
+    this._setPlayIcon = playBtn.setSymbol;
 
-createSymbolButton(toolbar, {
-  x: xBase + 56 * FS, y: toolbarH / 2, size: 16 * FS, symbol: 'reload',
-  onClick: () => {
+    createSymbolButton(toolbar, {
+      x: xBase + 56 * FS, y: toolbarH / 2, size: 16 * FS, symbol: 'reload',
+      onClick: () => {
         this.pause();
         this.lambda = this.defaults.lambda;
         this.x0     = this.defaults.x0;
@@ -295,7 +325,7 @@ createSymbolButton(toolbar, {
     lbl.setAttribute('x', w - 22 * FS); lbl.setAttribute('y', toolbarH - 2 * FS);
     lbl.setAttribute('font-size', `${12 * FS}`);
     lbl.setAttribute('text-anchor','middle');
-    lbl.setAttribute('fill','var(--color-text,#222)');
+    lbl.setAttribute('fill','var(--axis-text,#222)');
     toolbar.appendChild(lbl);
 
     // --- sliders (SVG) --------------------------------------------------------
@@ -320,7 +350,7 @@ createSymbolButton(toolbar, {
       t.setAttribute('x', trackX);
       t.setAttribute('y', trackCenterY - labelGap);
       t.setAttribute('font-size', `${labelFS}`);
-      t.setAttribute('fill','var(--color-text,#222)');
+      t.setAttribute('fill','var(--axis-text,#222)');
       t.setAttribute('dominant-baseline','ideographic');
       t.setAttribute('text-anchor','start');
       t.textContent = initialText;
@@ -446,7 +476,8 @@ createSymbolButton(toolbar, {
     const katex = await ensureKaTeX();
     const FS = this.o.fontScale;
     const pad = 16 * FS;
-    const labelInset = 26 * FS;
+    // unify spacing with ticks
+    const tick = 6 * FS, numGap = 3 * FS, labelInset = 26 * FS;
 
     this.timeLabels.x.innerHTML=''; katex.render('n', this.timeLabels.x);
     this.timeLabels.y.innerHTML=''; katex.render('x_n', this.timeLabels.y);
@@ -458,22 +489,27 @@ createSymbolButton(toolbar, {
     }
 
     Object.assign(this.timeLabels.x.style, {
-      left: '50%', bottom: `${pad + labelInset}px`, top:'auto', right:'auto', transform: 'translate(-50%, 0)'
+      left: '50%', bottom: `${pad + tick + numGap + labelInset}px`, top:'auto', right:'auto', transform: 'translate(-50%, 0)'
     });
     Object.assign(this.timeLabels.y.style, {
-      left: `${pad + labelInset}px`, top: '50%', transform: 'translate(0, -50%) rotate(-90deg)', transformOrigin: 'left top'
+      left: `${pad + tick + numGap + labelInset}px`, top: '50%',
+      transform: 'translate(0, -50%) rotate(-90deg)', transformOrigin: 'left top'
     });
     Object.assign(this.cobLabels.x.style, {
-      left: '50%', bottom: `${pad + labelInset}px`, top:'auto', transform: 'translate(-50%, 0)'
+      left: '50%', bottom: `${pad + tick + numGap + labelInset}px`, top:'auto', transform: 'translate(-50%, 0)'
     });
     Object.assign(this.cobLabels.y.style, {
-      left: `${pad + labelInset}px`, top: '50%', transform: 'translate(0, -50%) rotate(-90deg)', transformOrigin: 'left top'
+      left: `${pad + tick + numGap + labelInset}px`, top: '50%',
+      transform: 'translate(0, -50%) rotate(-90deg)', transformOrigin: 'left top'
     });
   }
 
   /* drawing helpers */
   _strokeRect(ctx, cssW, cssH){
-    ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+    // border respects theme var
+    const dark = globalThis.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches;
+    ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--color-border')?.trim()
+      || (dark ? '#5b5b5b' : '#c9c9c9');
     ctx.lineWidth = 1;
     ctx.strokeRect(0.5,0.5,cssW-1,cssH-1);
   }
@@ -487,7 +523,13 @@ createSymbolButton(toolbar, {
     const toX = (x)=> pad + W*x;
     const toY = (y)=> cssH - pad - H*y;
 
-    ctx.strokeStyle = 'rgba(127,127,127,0.85)';
+    const dark = globalThis.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches;
+    const tickStroke = getComputedStyle(document.documentElement).getPropertyValue('--axis-stroke')?.trim()
+      || (dark ? 'rgba(220,220,220,0.9)' : 'rgba(127,127,127,0.85)');
+    const textFill = getComputedStyle(document.documentElement).getPropertyValue('--axis-text')?.trim()
+      || (dark ? '#fff' : 'rgba(60,60,60,0.95)');
+
+    ctx.strokeStyle = tickStroke;
     ctx.lineWidth = 1;
     ctx.beginPath();
     for (let t=0; t<=1.0001; t+=0.2){
@@ -496,7 +538,7 @@ createSymbolButton(toolbar, {
     }
     ctx.stroke();
 
-    ctx.fillStyle = 'rgba(60,60,60,0.95)';
+    ctx.fillStyle = textFill;
     ctx.font = `${12 * FS}px system-ui, sans-serif`;
     ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
     for (let t=0; t<=1.0001; t+=0.2) ctx.fillText(t.toFixed(1), toX(t), cssH - pad - tick - numGap);
@@ -514,7 +556,13 @@ createSymbolButton(toolbar, {
     const toX = (n)=> pad + (W * n / N);
     const toY = (y)=> cssH - pad - H*y;
 
-    ctx.strokeStyle = 'rgba(127,127,127,0.85)';
+    const dark = globalThis.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches;
+    const tickStroke = getComputedStyle(document.documentElement).getPropertyValue('--axis-stroke')?.trim()
+      || (dark ? 'rgba(220,220,220,0.9)' : 'rgba(127,127,127,0.85)');
+    const textFill = getComputedStyle(document.documentElement).getPropertyValue('--axis-text')?.trim()
+      || (dark ? '#fff' : 'rgba(60,60,60,0.95)');
+
+    ctx.strokeStyle = tickStroke;
     ctx.lineWidth = 1;
     ctx.beginPath();
     for (let y=0; y<=1.0001; y+=0.2){ const Y = toY(y); ctx.moveTo(pad, Y); ctx.lineTo(pad + tick, Y); }
@@ -522,7 +570,7 @@ createSymbolButton(toolbar, {
     for (let n=0; n<=N; n+=step){ const X = toX(n); ctx.moveTo(X, cssH - pad); ctx.lineTo(X, cssH - pad - tick); }
     ctx.stroke();
 
-    ctx.fillStyle = 'rgba(60,60,60,0.95)';
+    ctx.fillStyle = textFill;
     ctx.font = `${12 * FS}px system-ui, sans-serif`;
     ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
     for (let n=0; n<=N; n+=step) ctx.fillText(String(n), toX(n), cssH - pad - tick - numGap);
@@ -550,7 +598,7 @@ createSymbolButton(toolbar, {
     ctx.beginPath(); let moved=false;
     for (let n=0; n<=this.o.N; n++){
       const X=toX(n), Y=toY(xs[n]);
-      if (!moved) { ctx.moveTo(X,Y); moved=true; } else ctx.lineTo(X,Y);
+      if (!moved) { ctx.moveTo(X,Y); moved=true; } else { ctx.lineTo(X,Y); }
     }
     ctx.strokeStyle = '#2e73b8ff';
     ctx.lineWidth = 2; ctx.stroke();
@@ -571,7 +619,10 @@ createSymbolButton(toolbar, {
     const toX = (x)=> pad + W*x, toY = (y)=> cssH - pad - H*y;
 
     // diagonal y=x
-    ctx.strokeStyle = 'rgba(127,127,127,0.9)';
+    const dark = globalThis.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches;
+    const diagStroke = getComputedStyle(document.documentElement).getPropertyValue('--axis-stroke')?.trim()
+      || (dark ? 'rgba(220,220,220,0.9)' : 'rgba(127,127,127,0.9)');
+    ctx.strokeStyle = diagStroke;
     ctx.lineWidth = 1.25;
     ctx.beginPath(); ctx.moveTo(toX(0), toY(0)); ctx.lineTo(toX(1), toY(1)); ctx.stroke();
 
