@@ -551,7 +551,7 @@ async _positionBifuLabels(){
     const Xc = toX(lambda);
     ctx.save();
     ctx.globalAlpha = this.o.dotAlpha;
-    ctx.fillStyle   = 'hsl(210 60% 45%)';
+    ctx.fillStyle   = 'hsla(0, 0%, 100%, 1.00)';
     ctx.imageSmoothingEnabled = true;
 
     const r = Math.max(0.15, this.o.dotSize);
@@ -590,7 +590,7 @@ async _positionBifuLabels(){
 
     const dark = globalThis.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches;
     ctx.strokeStyle = dark ? 'rgba(220,220,220,0.9)' : 'rgba(127,127,127,0.85)';
-    ctx.lineWidth = 1; ctx.beginPath();
+    ctx.lineWidth = 4; ctx.beginPath();
 
     for (let y=0; y<=1.0001; y+=0.2){
       const Y = toY(y);
@@ -634,7 +634,7 @@ async _positionBifuLabels(){
       const X=toX(n), Y=toY(xs[n]);
       if (!moved) { ctx.moveTo(X,Y); moved=true; } else { ctx.lineTo(X,Y); }
     }
-    ctx.strokeStyle = '#2e73b8ff';
+    ctx.strokeStyle = '#ffffffff';
     ctx.lineWidth = 2; ctx.stroke();
   }
 

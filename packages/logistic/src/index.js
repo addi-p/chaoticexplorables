@@ -600,8 +600,8 @@ export default class LogisticExplorable {
       const X=toX(n), Y=toY(xs[n]);
       if (!moved) { ctx.moveTo(X,Y); moved=true; } else { ctx.lineTo(X,Y); }
     }
-    ctx.strokeStyle = '#2e73b8ff';
-    ctx.lineWidth = 2; ctx.stroke();
+    ctx.strokeStyle = '#ffffffff';
+    ctx.lineWidth = 4; ctx.stroke();
   }
 
   _renderCobweb(){
@@ -633,8 +633,8 @@ export default class LogisticExplorable {
       const X=toX(x), Y=toY(clamp(y,0,1));
       i?ctx.lineTo(X,Y):ctx.moveTo(X,Y);
     }
-    ctx.strokeStyle='hsl(210 60% 45%)';
-    ctx.lineWidth=2; ctx.stroke();
+    ctx.strokeStyle='hsla(0, 0%, 100%, 1.00)';
+    ctx.lineWidth=4; ctx.stroke();
 
     // cobweb from x0
     let x=this.x0;
