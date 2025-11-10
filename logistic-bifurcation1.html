@@ -2,8 +2,8 @@
 <meta charset="utf-8" />
 <title>Logistic Explorable (with Axes)</title>
 <style>
-  html, body { margin: 0; padding: 0; }
-  #card { max-width: none; overflow: auto; padding: 12px; }
+  html, body { margin: 0; padding: 10;top: 100px; background-color: black;}
+  #card { max-width: none; overflow: auto; padding: 100px; }
 </style>
 
 <div id="card"></div>
@@ -17,17 +17,32 @@
   const card = new ExplorableCard('#card', {
     ExplorableClass: LogisticExplorable,
     title: '',
-    width: 500,
+    width: 2500,
     explorable: {
-      layout: 'stack',
-      controlsAt: 'top',
-      sceneSize: 500,
-      bifurcationSliceSeeds:20,
-      bifurcationDiscard:5000,
-      N: 80,
-      play:false,
-      fontScale: 2.5,  // ← global font scaling
-      showAxes: true    
+      sceneSize: 800,       // left plot (square)
+      bifuWidthScale: 1.5,  // width multiplier for the bifurcation plot (right)
+      N: 160,
+      showAxes: true,
+      showBifurcation: true,
+      fontScale: 1.0,
+
+      // domain for bifurcation (initial / base domain)
+      lambdaMin: 3.0,
+      lambdaMax: 4.0,
+
+      // bifurcation density/appearance
+      bifurcationIters: 5000,
+      bifurcationDiscard: 4900,
+      bifurcationSeeds: 10,
+      bifuSupersample:2,
+      dotAlpha: 0.5,
+      bifuDotSizeSS: 5,   // size in supersampled pixels (offscreen)
+
+      // Auto X (domain rescale during play)
+      autoZoomX: false,          // toggle default
+      autoXStepEvery: 600,       // steps between rescale events
+      autoXIncrement: 0.4,       // add to λ_min each rescale
+      autoXTargetMin: 3.5        // stop once λ_min reaches this
     }
   });
 

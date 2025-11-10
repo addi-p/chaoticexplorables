@@ -1,7 +1,8 @@
 // Logistic Map — Time series (left) + Bifurcation (right)
-// High-DPI bifurcation rendering, inward ticks from canvas border,
-// KaTeX labels (both canvases), presets (KaTeX), slider labels above tracks (live values),
-// double-click zoom, play/pause sweep, light/dark axis styling.
+// Supersampled bifurcation buffer (sharper zoom), smooth view zoom,
+// KaTeX labels, presets (KaTeX), slider readouts above tracks,
+// play/pause λ sweep, fontScale-aware layout, inward ticks,
+// independent bifurcation width, Auto-X zoom, theme-aware colors.
 
 // ---------- One-time CSS for widgets ----------
 (function ensureWidgetsCSS(){
@@ -14,18 +15,24 @@
   }
 })();
 
-// ---------- Axis styling (light/dark) ----------
+// ---------- Light/Dark theme for axes/borders ----------
 (function ensureAxisCSS(){
-  const id = 'cx-axis-css';
+  const id = 'cx-axis-theme';
   if (document.getElementById(id)) return;
   const style = document.createElement('style');
   style.id = id;
   style.textContent = `
-    .axis-label { fill: var(--axis-text, #222); }
-    .axis-tick  { stroke: var(--axis-stroke, rgba(127,127,127,0.85)); }
-    :root { --axis-text:#222; --axis-stroke:rgba(127,127,127,0.85); }
+    :root {
+      --axis-text:    #222;
+      --axis-stroke:  rgba(127,127,127,0.85);
+      --color-border: #c9c9c9;
+    }
     @media (prefers-color-scheme: dark) {
-      :root { --axis-text:#fff; --axis-stroke:rgba(220,220,220,0.9); }
+      :root {
+        --axis-text:    #fff;
+        --axis-stroke:  rgba(220,220,220,0.9);
+        --color-border: #5b5b5b;
+      }
     }
   `;
   document.head.appendChild(style);
@@ -47,6 +54,7 @@ async function ensureKaTeX() {
 }
 
 // ---------- Widgets ----------
+import { select } from '../../vendor/d3.mjs';
 import slider from '../../widgets/src/slider.js';
 import sliderElement from '../../widgets/src/sliderElement.js';
 import toggle from '../../widgets/src/toggle.js';
@@ -60,7 +68,6 @@ const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
 const f = (x, r) => r*x*(1-x);
 const iterate = (x0, r, N) => { const xs = new Array(N+1); xs[0]=x0; for(let i=0;i<N;i++) xs[i+1]=f(xs[i],r); return xs; };
 const fmt = (v)=> (Math.abs(v) < 1e-3 || Math.abs(v) >= 1e4) ? v.toExponential(2) : v.toFixed(3);
-const FONT_FAMILY = 'system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif';
 
 function resizeCanvasToDisplaySize(cvs){
   const dpr = Math.max(1, globalThis.devicePixelRatio||1);
@@ -68,7 +75,7 @@ function resizeCanvasToDisplaySize(cvs){
   const cssH = cvs.clientHeight|| parseFloat(getComputedStyle(cvs).height)||300;
   const w = Math.floor(cssW*dpr), h = Math.floor(cssH*dpr);
   if (cvs.width!==w || cvs.height!==h) { cvs.width=w; cvs.height=h; }
-  return { cssW, cssH, dpr };
+  return { cssW, cssH, dpr, devW:w, devH:h };
 }
 
 function createSymbolButton(svg, { x, y, size=16, symbol='play', onClick }){
@@ -105,9 +112,20 @@ function _autoGrowSVG(svg, extra = 8){
   try {
     const bb = svg.getBBox();
     const h = Math.ceil(bb.y + bb.height + extra);
-    if (h>0) svg.setAttribute('height', h);
+    if (h > 0) svg.setAttribute('height', h);
   } catch {}
 }
+
+function computeThemeColors(){
+  const dark = globalThis.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches;
+  return {
+    series:      dark ? 'rgba(255,255,255,0.95)' : '#2e73b8ff',
+    bifurcation: dark ? 'rgba(255,255,255,1)'    : 'hsl(210 60% 45%)'
+  };
+}
+
+// Easing
+const ease = u => u<=0 ? 0 : u>=1 ? 1 : (u*u*(3-2*u));
 
 /* ========================================================================== */
 export default class LogisticExplorable {
@@ -115,26 +133,65 @@ export default class LogisticExplorable {
     this.o = Object.assign({
       layout:'row',
       controlsAt:'end',
-      sceneSize: 360,
+      sceneSize: 360,        // left plot (square)
+      bifuWidthScale: 2.0,   // width multiplier for bifurcation plot (right)
       N: 160,
       showAxes: true,
       showBifurcation: true,
       fontScale: 1.0,
-      bifurcationIters: 6000,
-      bifurcationDiscard: 5000,
-      bifurcationSliceSeeds: 12,
-      dotAlpha: 0.42,
-      dotSize: 0.45
+
+      // base accumulation domain (fixed)
+      baseLambdaMin: 1.0,
+      baseLambdaMax: 4.0,
+
+      // initial view domain (rendered)
+      viewLambdaMin: 1.0,
+      viewLambdaMax: 4.0,
+
+      // -------- supersampling to reduce pixelation on rescale --------
+      bifuSupersample: 2,   // offscreen accumulation is 2× device resolution
+
+      // bifurcation density (slightly increased)
+      bifurcationIters: 10000,
+      bifurcationDiscard: 7000,
+      bifurcationSeeds: 16,
+      dotAlpha: 0.38,
+      bifuDotSizeSS: 1,   // size in supersampled pixels (offscreen)
+
+      // Auto X zoom settings
+      autoZoomX: false,
+      autoXStepEvery: 500,       // frames between setting a *new target*
+      autoXIncrement: 0.1,       // targetMin += this each step
+      autoXTargetMin: 3.5,       // stop at this min
+      autoXTweenMs: 450          // smooth tween duration between targets (ms)
     }, opts);
 
     this.root = typeof mount==='string' ? document.querySelector(mount) : mount;
     if (!this.root) throw new Error('mount not found');
 
+    // state
     this.defaults = { lambda: 1.2, x0: 0.02 };
     this.lambda = this.defaults.lambda;
     this.x0     = this.defaults.x0;
     this.running = false;
 
+    // theme colors
+    this._colors = computeThemeColors();
+
+    // Auto-X tween state
+    this._autoXCount = 0;
+    this._view = {
+      min: this.o.viewLambdaMin,
+      max: this.o.viewLambdaMax,
+      // tween
+      animMin: this.o.viewLambdaMin,
+      animMax: this.o.viewLambdaMax,
+      tweenMinFrom: this.o.viewLambdaMin,
+      tweenMinTo: this.o.viewLambdaMin,
+      t0: 0, t1: 0, active: false
+    };
+
+    // layout css (once)
     if (!document.getElementById('cx-logistic-layout-css')){
       const s = document.createElement('style');
       s.id='cx-logistic-layout-css';
@@ -145,12 +202,13 @@ export default class LogisticExplorable {
         .cx-controls{display:block;min-width:260px}
         .cx-log-view{line-height:0;position:relative;flex:0 0 auto}
         .cx-log-view canvas{display:block;border:1px solid var(--color-border,#c9c9c9);background:transparent;}
-        .cx-axlabel{position:absolute;pointer-events:none;}
+        .cx-axlabel{position:absolute;pointer-events:none;color:var(--axis-text,#222)}
         .cx-hidden{display:none!important;}
       `;
       document.head.appendChild(s);
     }
 
+    // DOM containers
     this.wrap = document.createElement('div');
     this.wrap.className='cx-log-wrap row';
     this.root.appendChild(this.wrap);
@@ -168,6 +226,7 @@ export default class LogisticExplorable {
       this.wrap.append(this.controlsBox, this.timeBox, this.bifuBox);
     }
 
+    // canvases + contexts
     this.timeCanvas=document.createElement('canvas');
     this.bifuCanvas=document.createElement('canvas');
     this.timeBox.appendChild(this.timeCanvas);
@@ -175,36 +234,38 @@ export default class LogisticExplorable {
     this.tctx=this.timeCanvas.getContext('2d',{alpha:true});
     this.bctx=this.bifuCanvas.getContext('2d',{alpha:true});
 
-    // SVG overlay (ticks & numbers only) — no border box
-    this.bifuSvg=document.createElementNS('http://www.w3.org/2000/svg','svg');
-    this.bifuSvg.style.position='absolute';
-    this.bifuSvg.style.inset='0';
-    this.bifuSvg.style.pointerEvents='none';
-    this.bifuBox.appendChild(this.bifuSvg);
-
-    // KaTeX labels (HTML)
+    // HTML labels (KaTeX)
     this.timeLabels={x:document.createElement('div'), y:document.createElement('div')};
     this.bifuLabels={x:document.createElement('div'), y:document.createElement('div')};
-    for (const el of [...Object.values(this.timeLabels), ...Object.values(this.bifuLabels)]) {
+    for (const el of Object.values(this.timeLabels).concat(Object.values(this.bifuLabels))) {
       el.className='cx-axlabel';
       el.style.fontSize=`${13*this.o.fontScale}px`;
-      el.style.color='var(--axis-text,#222)';
       el.style.opacity='0.95';
       el.style.willChange='transform';
     }
     this.timeBox.append(this.timeLabels.x, this.timeLabels.y);
     this.bifuBox.append(this.bifuLabels.x, this.bifuLabels.y);
 
-    this._bifuOff=null;
-    this._zoom={levels:[1,2,4,8], idx:0, cx:null, cy:null};
+    // accumulation buffer in BASE domain
+    this._accum = null;     // { canvas, ctx, key, pad_d, W_d, H_d, dpr, offW, offH, ss, visDevW, visDevH }
+    this._colIdx = 0;       // sweep column in offscreen space [0, W_d)
 
+    // controls + sizing
     this._buildControls(this.controlsBox);
     this._resizeAll();
-    this._installBifurcationZoom();
 
-    this._plotSlice(this.lambda, this.x0, { clearColumn:true });
+    // initial column at current λ
+    this._plotBifuColumnForLambda(this._clampToBase(this.lambda), { clearColumn:true });
     this.render();
 
+    // theme live update
+    if (globalThis.matchMedia) {
+      this._themeMedia = matchMedia('(prefers-color-scheme: dark)');
+      this._themeListener = () => { this._colors = computeThemeColors(); this.render(); };
+      this._themeMedia.addEventListener?.('change', this._themeListener);
+    }
+
+    // responsive
     this._ro=new ResizeObserver(()=> this._resizeAll());
     this._ro.observe(this.root);
   }
@@ -216,6 +277,7 @@ export default class LogisticExplorable {
     const w = Math.max(260, this.o.sceneSize);
     const toolbarH = 48 * FS;
 
+    // ----- Dropdown with KaTeX presets -----
     const ddHost = document.createElement('div');
     ddHost.style.display = 'block';
     ddHost.style.width = `${w}px`;
@@ -234,12 +296,15 @@ export default class LogisticExplorable {
     const dd = dropdown()
       .id('preset')
       .label('Preset')
-      .options(presets.map(p => ({ label:p.label, value:String(p.value) })))
-      .value(String(this.lambda))
+      .options(presets.map(p => ({ label:p.label, value:p.value })))
+      .value(this.lambda)
       .update(() => {
         const λ = parseFloat(dd.value());
-        this.lambda = λ;
-        this._plotSlice(λ, this.x0, { clearColumn:false });
+        this.lambda = this._clampToBase(λ);
+        if (this._sliders && this._slidersSvgSel) {
+          this._sliders.lambda.reset(this._slidersSvgSel, this.lambda);
+        }
+        this._plotBifuColumnForLambda(this.lambda, { clearColumn:true });
         this._updateValueTexts();
         this.render();
         this._katexifyDropdownLabels(this._presetEl, presets, true);
@@ -250,6 +315,7 @@ export default class LogisticExplorable {
     this._preset = dd; this._presetEl = ddEl;
     this._installDropdownKatex(ddEl, presets);
 
+    // ----- Toolbar -----
     const padLeft = 8 * FS;
     const toolbar = document.createElementNS('http://www.w3.org/2000/svg','svg');
     toolbar.setAttribute('width', w);
@@ -271,20 +337,14 @@ export default class LogisticExplorable {
     createSymbolButton(toolbar, {
       x: xBase + 56 * FS, y: toolbarH/2, size: 16 * FS, symbol: 'reload',
       onClick: () => {
-        this.pause();
-        this.lambda = this.defaults.lambda;
-        this.x0     = this.defaults.x0;
-        this._setPlayIcon?.('play');
-        this._clearBifu();
-        this._zoom = { levels:[1,2,4,8], idx:0, cx:null, cy:null };
-        this._updateValueTexts();
-        this._plotSlice(this.lambda, this.x0, { clearColumn:true });
-        this.render();
+        this._hardResetBifurcationAndState();   // full reset (buffer + view + params)
+        this._katexifyDropdownLabels(this._presetEl, presets, true);
       }
     });
 
+    // "Bifurcation" show/hide
     const bif = toggle().id('bif').size(10 * FS)
-      .position({ x: w - 22 * FS, y: toolbarH/2 })
+      .position({ x: w - 86 * FS, y: toolbarH/2 })
       .label(null)
       .value(this.o.showBifurcation?1:0)
       .update(()=>{
@@ -295,18 +355,42 @@ export default class LogisticExplorable {
     toolbar.appendChild(toggleElement(bif));
     const bifLbl = document.createElementNS('http://www.w3.org/2000/svg','text');
     bifLbl.textContent = 'Bifurcation';
-    bifLbl.setAttribute('x', w - 22 * FS); bifLbl.setAttribute('y', toolbarH - 2 * FS);
+    bifLbl.setAttribute('x', w - 86 * FS); bifLbl.setAttribute('y', toolbarH - 2 * FS);
     bifLbl.setAttribute('font-size', `${12 * FS}`);
     bifLbl.setAttribute('text-anchor','middle');
     bifLbl.setAttribute('fill','var(--axis-text, #222)');
     toolbar.appendChild(bifLbl);
 
+    // Auto X toggle (view zoom)
+    const ax = toggle().id('autox').size(10 * FS)
+      .position({ x: w - 22 * FS, y: toolbarH/2 })
+      .label(null)
+      .value(this.o.autoZoomX ? 1 : 0)
+      .update(()=>{
+        this.o.autoZoomX = !!ax.value();
+        this._autoXCount = 0;
+        if (!this.o.autoZoomX) {
+          // snap back to full view (smooth tween)
+          this._startViewTween(this._view.animMin, this.o.baseLambdaMin, this.o.autoXTweenMs);
+        }
+      });
+    toolbar.appendChild(toggleElement(ax));
+    const axLbl = document.createElementNS('http://www.w3.org/2000/svg','text');
+    axLbl.textContent = 'Auto X';
+    axLbl.setAttribute('x', w - 22 * FS); axLbl.setAttribute('y', toolbarH - 2 * FS);
+    axLbl.setAttribute('font-size', `${12 * FS}`);
+    axLbl.setAttribute('text-anchor','middle');
+    axLbl.setAttribute('fill','var(--axis-text, #222)');
+    toolbar.appendChild(axLbl);
+
+    // ----- Sliders (labels above tracks) -----
     const ssvg = document.createElementNS('http://www.w3.org/2000/svg','svg');
     ssvg.setAttribute('width', w);
     ssvg.setAttribute('height', 160 * FS);
     ssvg.style.display='block';
     ssvg.style.padding = `${4*FS}px 0 ${2*FS}px 0`;
     host.appendChild(ssvg);
+    this._slidersSvgSel = select(ssvg);
 
     const trackX   = 22 * FS;
     const trackW   = w - 44 * FS;
@@ -323,7 +407,6 @@ export default class LogisticExplorable {
       t.setAttribute('fill','var(--axis-text, #222)');
       t.setAttribute('dominant-baseline','ideographic');
       t.setAttribute('text-anchor','start');
-      t.style.fontFamily = FONT_FAMILY;
       t.textContent = initialText;
       ssvg.appendChild(t);
       return t;
@@ -331,11 +414,13 @@ export default class LogisticExplorable {
 
     const sλ = slider().id('lambda').label(null).size(trackW).girth(10 * FS).knob(8 * FS)
       .position({ x: trackX, y: baseY })
-      .range([0,4])
+      .range([this.o.baseLambdaMin, this.o.baseLambdaMax])
       .value(this.lambda)
       .update(()=>{
-        this.lambda = sλ.value();
-        this._plotSlice(this.lambda, this.x0, { clearColumn:false });
+        const λ = sλ.value();
+        this.lambda = this._clampToBase(λ);
+        this._preset?.value(this.lambda);
+        this._plotBifuColumnForLambda(this.lambda, { clearColumn:true });
         this._updateValueTexts();
         this.render();
       });
@@ -347,7 +432,7 @@ export default class LogisticExplorable {
       .value(this.x0)
       .update(()=>{
         this.x0 = sx0.value();
-        this._plotSlice(this.lambda, this.x0, { clearColumn:true });
+        this._plotBifuColumnForLambda(this.lambda, { clearColumn:true });
         this._updateValueTexts();
         this.render();
       });
@@ -373,6 +458,7 @@ export default class LogisticExplorable {
     this._ddObserver = mo;
   }
   async _katexifyDropdownLabels(ddEl, presets, includeSelected=false){
+    if (!ddEl) return;
     const katex = await ensureKaTeX();
     const FS = this.o.fontScale;
     const renderLabel = (container, p)=>{
@@ -380,7 +466,6 @@ export default class LogisticExplorable {
       const span = document.createElement('span');
       span.style.whiteSpace = 'nowrap';
       span.style.fontSize = `${13 * FS}px`;
-      span.style.fontFamily = FONT_FAMILY;
       katex.render(`${p.label}~( ${p.katex} )`, span, { throwOnError:false });
       container.appendChild(span);
     };
@@ -412,160 +497,158 @@ export default class LogisticExplorable {
 
   /* ---------- Sizing & labels ---------- */
   _resizeAll(){
-    const s = this.o.sceneSize;
-    for (const box of [this.timeBox, this.bifuBox]) {
-      box.style.width = `${s}px`;
-      box.style.height = `${s}px`;
-      box.style.flexBasis = `${s}px`;
-    }
-    for (const cvs of [this.timeCanvas, this.bifuCanvas]) {
-      cvs.style.width = `${s}px`;
-      cvs.style.height = `${s}px`;
-      resizeCanvasToDisplaySize(cvs);
-    }
+    const s = this.o.sceneSize; // left plot is square
+    // time (left)
+    this.timeBox.style.width = `${s}px`;
+    this.timeBox.style.height = `${s}px`;
+    this.timeBox.style.flexBasis = `${s}px`;
+    this.timeCanvas.style.width = `${s}px`;
+    this.timeCanvas.style.height = `${s}px`;
+    resizeCanvasToDisplaySize(this.timeCanvas);
 
-    const { cssW, cssH } = resizeCanvasToDisplaySize(this.bifuCanvas);
-    this.bifuSvg.setAttribute('width', cssW);
-    this.bifuSvg.setAttribute('height', cssH);
+    // bifurcation (right)
+    const bw = Math.max(s, Math.round(s * this.o.bifuWidthScale));
+    this.bifuBox.style.width = `${bw}px`;
+    this.bifuBox.style.height = `${s}px`;
+    this.bifuBox.style.flexBasis = `${bw}px`;
+    this.bifuCanvas.style.width = `${bw}px`;
+    this.bifuCanvas.style.height = `${s}px`;
+    resizeCanvasToDisplaySize(this.bifuCanvas);
 
-    this._bifuOff = null;
+    // (re)create accumulation if needed
+    this._ensureAccum(true); // rebuild with new device size / DPR / supersample
+
     this._positionTimeLabels();
     this._positionBifuLabels();
     this.render();
   }
 
   async _positionTimeLabels(){
-  if (!this.o.showAxes) {
-    for (const el of [this.timeLabels.x,this.timeLabels.y]) el.style.display = 'none';
-    return;
-  }
-  const katex = await ensureKaTeX();
-  const FS = this.o.fontScale;
-  const pad = 16 * FS;
-  const tick = 6 * FS, numGap = 3 * FS, labelInset = 26 * FS;  // unified spacing
+    if (!this.o.showAxes) { for (const el of Object.values(this.timeLabels)) el.style.display='none'; return; }
+    const katex = await ensureKaTeX();
+    const FS = this.o.fontScale;
+    const pad = 16 * FS, tick = 6 * FS, numGap = 3 * FS, labelInset = 26 * FS;
 
-  // render KaTeX
-  this.timeLabels.x.innerHTML=''; katex.render('n', this.timeLabels.x);
-  this.timeLabels.y.innerHTML=''; katex.render('x_n', this.timeLabels.y);
-  for (const el of [this.timeLabels.x,this.timeLabels.y]) {
-    el.style.display = '';
-    el.style.fontSize = `${13 * FS}px`;
-    el.style.fontFamily = FONT_FAMILY;
-  }
-
-  // x-label centered above tick numbers
-  Object.assign(this.timeLabels.x.style, {
-    left: '50%',
-    bottom: `${pad + tick + numGap + labelInset}px`,
-    transform: 'translate(-50%,0)'
-  });
-
-  // y-label rotated, same offset logic
-  Object.assign(this.timeLabels.y.style, {
-    left: `${pad + tick + numGap + labelInset}px`,
-    top: '50%',
-    transform: 'translate(0,-50%) rotate(-90deg)',
-    transformOrigin: 'left top'
-  });
-}
-
-async _positionBifuLabels(){
-  if (!this.o.showAxes) {
-    for (const el of [this.bifuLabels.x,this.bifuLabels.y]) el.style.display = 'none';
-    return;
-  }
-  const katex = await ensureKaTeX();
-  const FS = this.o.fontScale;
-  const pad = 16 * FS;
-  const tick = 6 * FS, numGap = 3 * FS, labelInset = 26 * FS;  // unified spacing
-
-  this.bifuLabels.x.innerHTML=''; katex.render('\\lambda', this.bifuLabels.x);
-  this.bifuLabels.y.innerHTML=''; katex.render('x_n', this.bifuLabels.y);
-  for (const el of [this.bifuLabels.x,this.bifuLabels.y]) {
-    el.style.display = '';
-    el.style.fontSize = `${13 * FS}px`;
-    el.style.fontFamily = FONT_FAMILY;
+    this.timeLabels.x.innerHTML=''; katex.render('n', this.timeLabels.x);
+    this.timeLabels.y.innerHTML=''; katex.render('x_n', this.timeLabels.y);
+    for (const el of Object.values(this.timeLabels)) { el.style.display=''; el.style.fontSize=`${13*FS}px`; }
+    Object.assign(this.timeLabels.x.style, {
+      left:'50%', bottom:`${pad + tick + numGap + labelInset}px`, transform:'translate(-50%,0)'
+    });
+    Object.assign(this.timeLabels.y.style, {
+      left:`${pad + tick + numGap + labelInset}px`, top:'50%',
+      transform:'translate(0,-50%) rotate(-90deg)', transformOrigin:'left top'
+    });
   }
 
-  // same vertical distance as time plot
-  Object.assign(this.bifuLabels.x.style, {
-    left: '50%',
-    bottom: `${pad + tick + numGap + labelInset}px`,
-    transform: 'translate(-50%,0)'
-  });
+  async _positionBifuLabels(){
+    if (!this.o.showAxes) { for (const el of Object.values(this.bifuLabels)) el.style.display='none'; return; }
+    const katex = await ensureKaTeX();
+    const FS = this.o.fontScale;
+    const pad = 16 * FS, tick = 6 * FS, numGap = 3 * FS, labelInset = 26 * FS;
 
-  // same horizontal offset for y-label
-  Object.assign(this.bifuLabels.y.style, {
-    left: `${pad + tick + numGap + labelInset}px`,
-    top: '50%',
-    transform: 'translate(0,-50%) rotate(-90deg)',
-    transformOrigin: 'left top'
-  });
-}
-
-  /* ---------- Bifurcation offscreen @ DPR ---------- */
-  _ensureBifuOff(){
-    const dpr = Math.max(1, globalThis.devicePixelRatio||1);
-    const cssW = this.bifuCanvas.clientWidth || parseFloat(getComputedStyle(this.bifuCanvas).width)||this.o.sceneSize;
-    const cssH = this.bifuCanvas.clientHeight|| parseFloat(getComputedStyle(this.bifuCanvas).height)||this.o.sceneSize;
-    const w = Math.floor(cssW*dpr), h = Math.floor(cssH*dpr);
-    const key = `${w}x${h}@${dpr}`;
-    if (this._bifuOff?.key === key) return this._bifuOff;
-
-    const cvs = document.createElement('canvas');
-    cvs.width = w; cvs.height = h;
-    const ctx = cvs.getContext('2d');
-    ctx.imageSmoothingEnabled = true;
-
-    this._bifuOff = { canvas: cvs, ctx, key, dpr };
-    return this._bifuOff;
+    this.bifuLabels.x.innerHTML=''; katex.render('\\lambda', this.bifuLabels.x);
+    this.bifuLabels.y.innerHTML=''; katex.render('x_n', this.bifuLabels.y);
+    for (const el of Object.values(this.bifuLabels)) { el.style.display=''; el.style.fontSize=`${13*FS}px`; }
+    Object.assign(this.bifuLabels.x.style, {
+      left:'50%', bottom:`${pad + tick + numGap + labelInset}px`, transform:'translate(-50%,0)'
+    });
+    Object.assign(this.bifuLabels.y.style, {
+      left:`${pad + tick + numGap + labelInset}px`, top:'50%',
+      transform:'translate(0,-50%) rotate(-90deg)', transformOrigin:'left top'
+    });
   }
 
-  _clearBifu(){
-    const off = this._ensureBifuOff();
-    off.ctx.clearRect(0,0,off.canvas.width, off.canvas.height);
-  }
-
-  _plotSlice(lambda, seed, { clearColumn=false } = {}){
-    const off = this._ensureBifuOff();
-    const { canvas, ctx, dpr } = off;
+  /* ---------- Accumulation buffer at DPR * supersample (BASE domain) ---------- */
+  _ensureAccum(reset=false){
+    const vis = resizeCanvasToDisplaySize(this.bifuCanvas);
+    const dpr   = vis.dpr;
+    const devW  = vis.devW;
+    const devH  = vis.devH;
 
     const FS = this.o.fontScale;
-    const pad = Math.round(16*FS*dpr);
-    const W = canvas.width  - 2*pad;
-    const H = canvas.height - 2*pad;
+    const ss = Math.max(1, Math.floor(this.o.bifuSupersample)); // supersample factor
+    const offW = devW * ss;
+    const offH = devH * ss;
 
-    const toX = (λ)=> pad + W * (λ / 4);
-    const toY = (y)=> canvas.height - pad - H * clamp(y,0,1);
+    const pad_d = Math.round(16 * FS * dpr * ss);
+    const W_d = offW - 2*pad_d;
+    const H_d = offH - 2*pad_d;
 
-    if (clearColumn) {
-      const X = Math.round(toX(lambda));
-      ctx.clearRect(X-1, pad, 3, H);
+    const key = `${offW}x${offH}@${dpr}xSS${ss}|base:${this.o.baseLambdaMin}-${this.o.baseLambdaMax}`;
+
+    if (!this._accum || reset || this._accum.key !== key){
+      const cvs = document.createElement('canvas');
+      cvs.width = offW; cvs.height = offH;
+      const ctx = cvs.getContext('2d', { alpha: true });
+      ctx.imageSmoothingEnabled = false;
+      ctx.clearRect(0,0,offW,offH);
+      this._accum = { canvas:cvs, ctx, key, pad_d, W_d, H_d, dpr, offW, offH, ss, visDevW:devW, visDevH:devH };
+      // align sweep column with current lambda
+      const col = this._lambdaToDeviceX_base(this.lambda) - pad_d;
+      this._colIdx = Math.max(0, Math.min(col, Math.max(0, W_d - 1)));
+    } else {
+      Object.assign(this._accum, { pad_d, W_d, H_d, dpr, offW, offH, ss, visDevW:devW, visDevH:devH });
     }
+    return this._accum;
+  }
 
-    const iters  = Math.max(1, this.o.bifurcationIters);
-    const drop   = Math.max(0, Math.min(iters, this.o.bifurcationDiscard));
-    const seedsN = Math.max(1, Math.floor(this.o.bifurcationSliceSeeds));
+  _clampToBase(λ){
+    return clamp(λ, this.o.baseLambdaMin, this.o.baseLambdaMax);
+  }
+  _lambdaToDeviceX_base(λ){
+    const { baseLambdaMin:min, baseLambdaMax:max } = this.o;
+    const acc = this._ensureAccum();
+    const { pad_d, W_d } = acc;
+    const u = clamp((λ - min) / Math.max(1e-9, (max - min)), 0, 1);
+    return Math.round(pad_d + u * W_d);
+  }
+  _deviceColToLambda_base(col){
+    const { baseLambdaMin:min, baseLambdaMax:max } = this.o;
+    const acc = this._ensureAccum();
+    const { W_d } = acc;
+    const u = clamp(col / Math.max(1, W_d), 0, 1);
+    return min + (max - min) * u;
+  }
+
+  _clearDeviceColumn(absX){
+    const acc = this._ensureAccum();
+    const { ctx, pad_d, H_d } = acc;
+    const x = Math.round(absX);
+    ctx.clearRect(x, pad_d, 1, H_d);
+  }
+
+  _plotBifuColumnForLambda(λ, { clearColumn=false } = {}){
+    // Draw a 1px vertical column into the BASE-domain supersampled buffer
+    const acc = this._ensureAccum();
+    const { ctx, pad_d, H_d, offH } = acc;
+
+    const absX = this._lambdaToDeviceX_base(λ);
+    if (clearColumn) this._clearDeviceColumn(absX);
+
     const eps = 1e-6;
+    const iters  = Math.max(10, this.o.bifurcationIters);
+    const drop   = Math.max(0, Math.min(iters-1, this.o.bifurcationDiscard));
+    const seedsN = Math.max(1, Math.floor(this.o.bifurcationSeeds));
 
-    const Xc = toX(lambda);
+    const toYd = (x)=> {
+      const yy = clamp(x, 0, 1);
+      return Math.round(offH - pad_d - Math.round(yy * H_d));
+    };
+
     ctx.save();
     ctx.globalAlpha = this.o.dotAlpha;
-    ctx.fillStyle   = 'hsla(0, 0%, 100%, 1.00)';
-    ctx.imageSmoothingEnabled = true;
-
-    const r = Math.max(0.15, this.o.dotSize);
+    ctx.fillStyle = this._colors.bifurcation;
     for (let s=0; s<seedsN; s++){
-      let x = clamp(seed + (Math.random()*0.4 - 0.2), eps, 1 - eps);
+      let x = clamp(this.x0 + (Math.random()*0.4 - 0.2), eps, 1 - eps);
       for (let i=0; i<iters; i++){
-        x = f(x, lambda);
+        x = f(x, λ);
         if (i >= drop) {
           if (x <= eps || x >= 1-eps) continue;
-          const Y = toY(x);
-          const xj = (Math.random() - 0.5) * 0.6;
-          ctx.beginPath();
-          ctx.arc(Xc + xj, Y, r, 0, Math.PI*2);
-          ctx.fill();
+          const y = toYd(x);
+          //ctx.fillRect(absX, y, 1, 1); // 1 supersampled pixel (becomes sub-pixel on screen)
+          const s = Math.max(1, this.o.bifuDotSizeSS|0);
+          ctx.fillRect(absX, y, s, s);
         }
       }
     }
@@ -574,41 +657,67 @@ async _positionBifuLabels(){
 
   /* ---------- Drawing ---------- */
   _strokeRect(ctx, cssW, cssH){
-    // keep the box for the time-series only (bifurcation has no border)
-    ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+    const border = getComputedStyle(document.documentElement).getPropertyValue('--color-border')?.trim() || '#c9c9c9';
+    ctx.strokeStyle = border;
     ctx.lineWidth = 1;
     ctx.strokeRect(0.5,0.5,cssW-1,cssH-1);
+  }
+
+  _drawAxesTicks01(ctx, cssW, cssH){
+    const FS = this.o.fontScale;
+    const pad = 16 * FS, W = cssW - 2*pad, H = cssH - 2*pad;
+    const tick = 6 * FS, numGap = 4 * FS;
+
+    const toX = (x)=> pad + W*x;
+    const toY = (y)=> cssH - pad - H*y;
+
+    const tickStroke = getComputedStyle(document.documentElement).getPropertyValue('--axis-stroke')?.trim()
+      || 'rgba(127,127,127,0.85)';
+    const textFill = getComputedStyle(document.documentElement).getPropertyValue('--axis-text')?.trim()
+      || 'rgba(60,60,60,0.95)';
+
+    ctx.strokeStyle = tickStroke;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let t=0; t<=1.0001; t+=0.2){
+      ctx.moveTo(toX(t), cssH - pad); ctx.lineTo(toX(t), cssH - pad - tick);
+      ctx.moveTo(pad, toY(t));        ctx.lineTo(pad + tick, toY(t));
+    }
+    ctx.stroke();
+
+    ctx.fillStyle = textFill;
+    ctx.font = `${12 * FS}px system-ui, sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    for (let t=0; t<=1.0001; t+=0.2){ ctx.fillText(t.toFixed(1), toX(t), cssH - pad - tick - numGap); }
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    for (let t=0; t<=1.0001; t+=0.2){ ctx.fillText(t.toFixed(1), pad + tick + numGap, toY(t)); }
   }
 
   _drawAxesTicksTime(ctx, cssW, cssH){
     const FS = this.o.fontScale;
     const pad = 16 * FS, W = cssW - 2*pad, H = cssH - 2*pad;
-    const tick = 6 * FS, numGap = 3 * FS;
-    const N = this.o.N;
+    const tick = 6 * FS, numGap = 4 * FS, N = this.o.N;
 
-    const toX = (n)=> pad + (W * n / N), toY = (y)=> cssH - pad - H*y;
+    const toX = (n)=> pad + (W * n / N);
+    const toY = (y)=> cssH - pad - H*y;
 
-    const dark = globalThis.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches;
-    ctx.strokeStyle = dark ? 'rgba(220,220,220,0.9)' : 'rgba(127,127,127,0.85)';
-    ctx.lineWidth = 4; ctx.beginPath();
+    const tickStroke = getComputedStyle(document.documentElement).getPropertyValue('--axis-stroke')?.trim()
+      || 'rgba(127,127,127,0.85)';
+    const textFill = getComputedStyle(document.documentElement).getPropertyValue('--axis-text')?.trim()
+      || 'rgba(60,60,60,0.95)';
 
-    for (let y=0; y<=1.0001; y+=0.2){
-      const Y = toY(y);
-      ctx.moveTo(pad, Y); ctx.lineTo(pad + tick, Y);
-    }
+    ctx.strokeStyle = tickStroke;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let y=0; y<=1.0001; y+=0.2){ const Y = toY(y); ctx.moveTo(pad, Y); ctx.lineTo(pad + tick, Y); }
     const step = Math.max(1, Math.round(N/6));
-    for (let n=0; n<=N; n+=step){
-      const X = toX(n);
-      ctx.moveTo(X, cssH - pad); ctx.lineTo(X, cssH - pad - tick);
-    }
+    for (let n=0; n<=N; n+=step){ const X = toX(n); ctx.moveTo(X, cssH - pad); ctx.lineTo(X, cssH - pad - tick); }
     ctx.stroke();
 
-    ctx.fillStyle = dark ? '#fff' : 'rgba(60,60,60,0.95)';
-    ctx.font = `${12 * FS}px ${FONT_FAMILY}`;
-
+    ctx.fillStyle = textFill;
+    ctx.font = `${12 * FS}px system-ui, sans-serif`;
     ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
     for (let n=0; n<=N; n+=step){ ctx.fillText(String(n), toX(n), cssH - pad - tick - numGap); }
-
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
     for (let y=0; y<=1.0001; y+=0.2){ ctx.fillText(y.toFixed(1), pad + tick + numGap, toY(y)); }
   }
@@ -634,145 +743,192 @@ async _positionBifuLabels(){
       const X=toX(n), Y=toY(xs[n]);
       if (!moved) { ctx.moveTo(X,Y); moved=true; } else { ctx.lineTo(X,Y); }
     }
-    ctx.strokeStyle = '#ffffffff';
+    ctx.strokeStyle = this._colors.series;
     ctx.lineWidth = 2; ctx.stroke();
   }
 
   _renderBifurcation(){
     if (!this.o.showBifurcation) return;
-    const { cssW, cssH, dpr } = resizeCanvasToDisplaySize(this.bifuCanvas);
+
+    const acc  = this._ensureAccum();
+    const { canvas:accCvs, pad_d:padBase, W_d:WBase, offW, offH } = acc;
+
+    const vis = resizeCanvasToDisplaySize(this.bifuCanvas);
+    const { cssW, cssH, dpr, devW, devH } = vis;
     const ctx = this.bctx;
+    ctx.setTransform(1,0,0,1,0,0);
+    ctx.clearRect(0,0,devW,devH);
+
+    const FS = this.o.fontScale;
+    const padVis = Math.round(16 * FS * dpr);
+    const WVis   = devW - 2*padVis;
+
+    // View domain
+    const vMin = this._view.animMin;
+    const vMax = this._view.animMax;
+
+    // Crop from supersampled base buffer → visible canvas
+    const fracL = clamp((vMin - this.o.baseLambdaMin) / Math.max(1e-9, (this.o.baseLambdaMax - this.o.baseLambdaMin)), 0, 1);
+    const fracR = clamp((vMax - this.o.baseLambdaMin) / Math.max(1e-9, (this.o.baseLambdaMax - this.o.baseLambdaMin)), 0, 1);
+    const srcX  = Math.round(padBase + fracL * WBase);
+    const srcX2 = Math.round(padBase + fracR * WBase);
+    const srcW  = Math.max(1, srcX2 - srcX);
+
+    ctx.imageSmoothingEnabled = true;          // <— smoothing ON when drawing supersampled image down
+    ctx.drawImage(accCvs, srcX, 0, srcW, offH, padVis, 0, WVis, devH);
+
+    // Axes with view domain
     ctx.setTransform(dpr,0,0,dpr,0,0);
-    ctx.clearRect(0,0,cssW,cssH);
+    if (this.o.showAxes){
+      const pad = 16 * FS, W = cssW - 2*pad, H = cssH - 2*pad;
+      const tick = 6 * FS, numGap = 4 * FS;
 
-    const s = this._zoom.levels[this._zoom.idx] || 1;
-    const cx = (this._zoom.cx ?? cssW/2);
-    const cy = (this._zoom.cy ?? cssH/2);
+      const toX = (λ)=> pad + W * ((λ - vMin) / (vMax - vMin));
+      const toY = (y)=> cssH - pad - H * y;
 
-    ctx.save();
-    ctx.translate(cssW/2, cssH/2);
-    ctx.scale(s, s);
-    ctx.translate(-cx, -cy);
+      const tickStroke = getComputedStyle(document.documentElement).getPropertyValue('--axis-stroke')?.trim()
+        || 'rgba(127,127,127,0.85)';
+      const textFill = getComputedStyle(document.documentElement).getPropertyValue('--axis-text')?.trim()
+        || 'rgba(60,60,60,0.95)';
 
-    const off = this._ensureBifuOff();
-    ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(off.canvas, 0, 0, off.canvas.width, off.canvas.height, 0, 0, cssW, cssH);
-    ctx.restore();
+      ctx.strokeStyle = tickStroke;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      const step = 0.5;
+      for (let λ=vMin; λ<=vMax + 1e-9; λ+=step){
+        const X = toX(λ);
+        ctx.moveTo(X, cssH - pad); ctx.lineTo(X, cssH - pad - tick);
+      }
+      for (let y=0; y<=1.0001; y+=0.2){
+        const Y = toY(y);
+        ctx.moveTo(pad, Y); ctx.lineTo(pad + tick, Y);
+      }
+      ctx.stroke();
 
-    if (this.o.showAxes) {
-      this._renderBifuAxesSVG();  // ticks + numbers (no box)
-      this._positionBifuLabels(); // KaTeX λ and x_n
+      ctx.fillStyle = textFill;
+      ctx.font = `${12 * FS}px system-ui, sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+      for (let λ=vMin; λ<=vMax + 1e-9; λ+=step){ ctx.fillText(λ.toFixed(1), toX(λ), cssH - pad - tick - numGap); }
+      ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      for (let y=0; y<=1.0001; y+=0.2){ ctx.fillText(y.toFixed(1), pad + tick + numGap, toY(y)); }
+
+      this._strokeRect(ctx, cssW, cssH);
     }
   }
 
   render(){
+    // progress Auto-X tween if active
+    if (this._view.active) {
+      const now = performance.now();
+      const u = clamp((now - this._view.t0) / Math.max(1, this._view.t1 - this._view.t0), 0, 1);
+      const k = ease(u);
+      this._view.animMin = this._view.tweenMinFrom + (this._view.tweenMinTo - this._view.tweenMinFrom) * k;
+      if (u >= 1) {
+        this._view.active = false;
+        this._view.min = this._view.animMin;
+      }
+    }
+
+    this._colors = computeThemeColors();
     this._renderTime();
     this._renderBifurcation();
   }
 
-  _renderBifuAxesSVG(){
-    const svg = this.bifuSvg;
-    while (svg.firstChild) svg.removeChild(svg.firstChild);
-
-    const cssW = parseFloat(svg.getAttribute('width'))  || svg.clientWidth  || this.bifuCanvas.clientWidth  || this.o.sceneSize;
-    const cssH = parseFloat(svg.getAttribute('height')) || svg.clientHeight || this.bifuCanvas.clientHeight || this.o.sceneSize;
-
-    const FS = this.o.fontScale;
-    const pad = 16 * FS;
-    const W = cssW - 2*pad, H = cssH - 2*pad;
-
-    const toX = (λ)=> pad + W * (λ / 4);
-    const toY = (y)=> cssH - pad - H * y;
-
-    const tick = 6 * FS, numGap = 3 * FS;
-    const fontPx = `${12 * FS}px`;
-
-    const g = document.createElementNS('http://www.w3.org/2000/svg','g');
-    g.setAttribute('class','axis-tick');
-    svg.appendChild(g);
-
-    for (let λ=0; λ<=4.0001; λ+=0.5){
-      const X = toX(λ);
-      const line = document.createElementNS('http://www.w3.org/2000/svg','line');
-      line.setAttribute('x1', X); line.setAttribute('x2', X);
-      line.setAttribute('y1', cssH - pad); line.setAttribute('y2', cssH - pad - tick);
-      g.appendChild(line);
-
-      const t = document.createElementNS('http://www.w3.org/2000/svg','text');
-      t.setAttribute('x', X);
-      t.setAttribute('y', cssH - pad - tick - numGap);
-      t.setAttribute('text-anchor','middle');
-      t.setAttribute('class','axis-label');
-      t.setAttribute('font-size', fontPx);
-      t.style.fontFamily = FONT_FAMILY;
-      t.textContent = λ.toFixed(1);
-      svg.appendChild(t);
-    }
-
-    for (let y=0; y<=1.0001; y+=0.2){
-      const Y = toY(y);
-      const line = document.createElementNS('http://www.w3.org/2000/svg','line');
-      line.setAttribute('x1', pad); line.setAttribute('x2', pad + tick);
-      line.setAttribute('y1', Y);   line.setAttribute('y2', Y);
-      g.appendChild(line);
-
-      const t = document.createElementNS('http://www.w3.org/2000/svg','text');
-      t.setAttribute('x', pad + tick + numGap);
-      t.setAttribute('y', Y);
-      t.setAttribute('dominant-baseline','middle');
-      t.setAttribute('class','axis-label');
-      t.setAttribute('font-size', fontPx);
-      t.style.fontFamily = FONT_FAMILY;
-      t.textContent = y.toFixed(1);
-      svg.appendChild(t);
-    }
-  }
-
-  /* ---------- Interaction ---------- */
-  _installBifurcationZoom(){
-    this.bifuCanvas.addEventListener('dblclick', (ev)=>{
-      const rect = this.bifuCanvas.getBoundingClientRect();
-      const x = ev.clientX - rect.left;
-      const y = ev.clientY - rect.top;
-
-      if (this._zoom.idx < this._zoom.levels.length - 1) {
-        this._zoom.idx += 1;
-        this._zoom.cx = x;
-        this._zoom.cy = y;
-      } else {
-        this._zoom.idx = 0;
-        this._zoom.cx = null;
-        this._zoom.cy = null;
-      }
-      this.render();
-    }, { passive:true });
-  }
-
+  /* ---------- Sweep (play) with smooth Auto-X VIEW rescale ---------- */
   play(){
     if (this.running) return;
     this.running = true;
     this._setPlayIcon?.('pause');
+    this._autoXCount = 0;
+    let last = performance.now();
 
-    const tick = ()=>{
+    const step = ()=>{
       if (!this.running) return;
+      const now = performance.now();
+      const dt = Math.min(0.05, (now - last) / 1000);
+      last = now;
 
-      let λ = this.lambda;
-      λ += 0.004;
-      if (λ > 4) λ = 0;
-
+      // advance device column in BASE buffer
+      const acc = this._ensureAccum();
+      const { W_d } = acc;
+      const λ = this._deviceColToLambda_base(this._colIdx);
       this.lambda = λ;
-      this._plotSlice(λ, this.x0, { clearColumn:false });
+
+      if (this._sliders && this._slidersSvgSel) this._sliders.lambda.reset(this._slidersSvgSel, λ);
+      this._preset?.value(λ);
+
+      this._plotBifuColumnForLambda(λ, { clearColumn:false });
       this._updateValueTexts();
+
+      // Auto X: periodically set a new targetMin and tween smoothly
+      if (this.o.autoZoomX) {
+        this._autoXCount += 1;
+        if (this._autoXCount >= this.o.autoXStepEvery && this._view.min < this.o.autoXTargetMin) {
+          const nextMin = Math.min(this._view.min + this.o.autoXIncrement, this.o.autoXTargetMin);
+          this._startViewTween(this._view.animMin, nextMin, this.o.autoXTweenMs);
+          this._autoXCount = 0;
+        }
+      }
+
       this.render();
 
-      requestAnimationFrame(tick);
+      // next column wrap
+      this._colIdx = (this._colIdx + 1) % Math.max(1, W_d);
+      requestAnimationFrame(step);
     };
-    requestAnimationFrame(tick);
+    requestAnimationFrame(step);
   }
 
   pause(){
     if (!this.running) return;
     this.running = false;
     this._setPlayIcon?.('play');
+  }
+
+  /* ---------- View tween helpers ---------- */
+  _startViewTween(fromMin, toMin, durMs){
+    const tgt = clamp(toMin, this.o.baseLambdaMin, this.o.baseLambdaMax - 1e-6);
+    this._view.tweenMinFrom = clamp(fromMin, this.o.baseLambdaMin, this.o.baseLambdaMax);
+    this._view.tweenMinTo   = tgt;
+    this._view.t0 = performance.now();
+    this._view.t1 = this._view.t0 + Math.max(50, durMs|0);
+    this._view.active = true;
+    this._view.animMin = this._view.tweenMinFrom;
+    this._view.animMax = this.o.baseLambdaMax;
+  }
+
+  /* ---------- Hard reset including the bifurcation buffer ---------- */
+  _hardResetBifurcationAndState(){
+    this.pause();
+
+    // reset parameters
+    this.lambda = this.defaults.lambda;
+    this.x0     = this.defaults.x0;
+
+    // reset sliders + dropdown
+    if (this._sliders && this._slidersSvgSel) {
+      this._sliders.lambda.reset(this._slidersSvgSel, this.lambda);
+      this._sliders.x0.reset(this._slidersSvgSel, this.x0);
+    }
+    this._preset?.value(this.lambda);
+    this._setPlayIcon?.('play');
+
+    // restore view + tween state
+    this.o.viewLambdaMin = this.o.baseLambdaMin;
+    this.o.viewLambdaMax = this.o.baseLambdaMax;
+    this._view.min = this.o.viewLambdaMin;
+    this._view.max = this.o.viewLambdaMax;
+    this._view.animMin = this._view.min;
+    this._view.animMax = this._view.max;
+    this._view.active = false;
+    this._autoXCount = 0;
+
+    // fully rebuild the accumulation buffer (clears it)
+    this._ensureAccum(true);
+    // draw a clean first slice at current λ
+    this._plotBifuColumnForLambda(this._clampToBase(this.lambda), { clearColumn:true });
+
+    this._updateValueTexts();
+    this.render();
   }
 }
