@@ -1,0 +1,3 @@
+To run:
+
+```npx serve .```
