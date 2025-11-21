@@ -2,7 +2,7 @@
 <meta charset="utf-8" />
 <title>Logistic Explorable (with Axes)</title>
 <style>
-  html, body { margin: 0; padding: 0; }
+  html, body { margin: 0; padding: 0;background-color: black; }
   #card { max-width: none; overflow: auto; padding: 12px; }
 </style>
 
@@ -17,12 +17,12 @@
   const card = new ExplorableCard('#card', {
     ExplorableClass: LogisticExplorable,
     title: '',
-    width: 500,
+    width: 1000,
     explorable: {
-      layout: 'stack',
-      controlsAt: 'top',
+      layout: 'row',
+      controlsAt: 'end',
       sceneSize: 500,
-      N: 80,
+      N: 25,
       play:false,
       fontScale: 2.5,  // ← global font scaling
       showCobweb: true,

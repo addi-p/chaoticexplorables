@@ -1,7 +1,7 @@
 // Logistic Map — Time series (left) + Bifurcation (right)
 // Supersampled bifurcation buffer (sharper zoom), smooth view zoom,
 // KaTeX labels, presets (KaTeX), slider readouts above tracks,
-// play/pause λ sweep, fontScale-aware layout, inward ticks,
+// play/pause λ sweep, fontScale-aware layout, outward ticks & labels,
 // independent bifurcation width, Auto-X zoom, theme-aware colors.
 
 // ---------- One-time CSS for widgets ----------
@@ -270,6 +270,29 @@ export default class LogisticExplorable {
     this._ro.observe(this.root);
   }
 
+  /* ---------- Axis geometry (shared) ---------- */
+  _axisMetrics(){
+    const FS = this.o.fontScale;
+    const tick = 6 * FS;
+    const numGap = 4 * FS;
+    const labelFont = 12 * FS;
+    const labelInset = 20 * FS;          // extra space for axis labels
+
+    const marginBottom = tick + numGap + labelFont + labelInset;
+    const marginLeft   = tick + numGap + labelFont + labelInset;
+    const marginTop    = 8 * FS;
+    const marginRight  = 8 * FS;
+
+    const axisLabelBottom    = 6 * FS;   // distance from canvas bottom
+    const axisLabelLeftExtra = 16 * FS;  // extra push left for y-label
+
+    return {
+      FS, tick, numGap, labelFont, labelInset,
+      marginBottom, marginLeft, marginTop, marginRight,
+      axisLabelBottom, axisLabelLeftExtra
+    };
+  }
+
   /* ---------- Controls ---------- */
   _buildControls(host){
     host.innerHTML = '';
@@ -526,36 +549,52 @@ export default class LogisticExplorable {
   async _positionTimeLabels(){
     if (!this.o.showAxes) { for (const el of Object.values(this.timeLabels)) el.style.display='none'; return; }
     const katex = await ensureKaTeX();
-    const FS = this.o.fontScale;
-    const pad = 16 * FS, tick = 6 * FS, numGap = 3 * FS, labelInset = 26 * FS;
+    const m = this._axisMetrics();
+    const { FS, tick, numGap, marginLeft, axisLabelBottom, axisLabelLeftExtra } = m;
 
     this.timeLabels.x.innerHTML=''; katex.render('n', this.timeLabels.x);
     this.timeLabels.y.innerHTML=''; katex.render('x_n', this.timeLabels.y);
     for (const el of Object.values(this.timeLabels)) { el.style.display=''; el.style.fontSize=`${13*FS}px`; }
+
+    // x label: centered, below tick labels
     Object.assign(this.timeLabels.x.style, {
-      left:'50%', bottom:`${pad + tick + numGap + labelInset}px`, transform:'translate(-50%,0)'
+      left:'50%',
+      bottom:`${axisLabelBottom}px`,
+      transform:'translate(-50%,0)'
     });
+
+    // y label: left of tick labels
+    const leftForLabels = marginLeft - (tick + numGap + axisLabelLeftExtra);
     Object.assign(this.timeLabels.y.style, {
-      left:`${pad + tick + numGap + labelInset}px`, top:'50%',
-      transform:'translate(0,-50%) rotate(-90deg)', transformOrigin:'left top'
+      left:`${Math.max(2, leftForLabels)}px`,
+      top:'50%',
+      transform:'translate(0,-50%) rotate(-90deg)',
+      transformOrigin:'left top'
     });
   }
 
   async _positionBifuLabels(){
     if (!this.o.showAxes) { for (const el of Object.values(this.bifuLabels)) el.style.display='none'; return; }
     const katex = await ensureKaTeX();
-    const FS = this.o.fontScale;
-    const pad = 16 * FS, tick = 6 * FS, numGap = 3 * FS, labelInset = 26 * FS;
+    const m = this._axisMetrics();
+    const { FS, tick, numGap, marginLeft, axisLabelBottom, axisLabelLeftExtra } = m;
 
     this.bifuLabels.x.innerHTML=''; katex.render('\\lambda', this.bifuLabels.x);
     this.bifuLabels.y.innerHTML=''; katex.render('x_n', this.bifuLabels.y);
     for (const el of Object.values(this.bifuLabels)) { el.style.display=''; el.style.fontSize=`${13*FS}px`; }
+
     Object.assign(this.bifuLabels.x.style, {
-      left:'50%', bottom:`${pad + tick + numGap + labelInset}px`, transform:'translate(-50%,0)'
+      left:'50%',
+      bottom:`${axisLabelBottom}px`,
+      transform:'translate(-50%,0)'
     });
+
+    const leftForLabels = marginLeft - (tick + numGap + axisLabelLeftExtra);
     Object.assign(this.bifuLabels.y.style, {
-      left:`${pad + tick + numGap + labelInset}px`, top:'50%',
-      transform:'translate(0,-50%) rotate(-90deg)', transformOrigin:'left top'
+      left:`${Math.max(2, leftForLabels)}px`,
+      top:'50%',
+      transform:'translate(0,-50%) rotate(-90deg)',
+      transformOrigin:'left top'
     });
   }
 
@@ -646,9 +685,8 @@ export default class LogisticExplorable {
         if (i >= drop) {
           if (x <= eps || x >= 1-eps) continue;
           const y = toYd(x);
-          //ctx.fillRect(absX, y, 1, 1); // 1 supersampled pixel (becomes sub-pixel on screen)
-          const s = Math.max(1, this.o.bifuDotSizeSS|0);
-          ctx.fillRect(absX, y, s, s);
+          const sz = Math.max(1, this.o.bifuDotSizeSS|0);
+          ctx.fillRect(absX, y, sz, sz);
         }
       }
     }
@@ -663,43 +701,77 @@ export default class LogisticExplorable {
     ctx.strokeRect(0.5,0.5,cssW-1,cssH-1);
   }
 
-  _drawAxesTicks01(ctx, cssW, cssH){
-    const FS = this.o.fontScale;
-    const pad = 16 * FS, W = cssW - 2*pad, H = cssH - 2*pad;
-    const tick = 6 * FS, numGap = 4 * FS;
+  _drawAxesTicksTime(ctx, cssW, cssH){
+    const m = this._axisMetrics();
+    const { FS, tick, numGap, marginLeft, marginRight, marginTop, marginBottom } = m;
 
-    const toX = (x)=> pad + W*x;
-    const toY = (y)=> cssH - pad - H*y;
+    const W = cssW - marginLeft - marginRight;
+    const H = cssH - marginTop - marginBottom;
+    const N = this.o.N;
+
+    const axisX = marginLeft;
+    const axisY = cssH - marginBottom;
+
+    const toX = (n)=> axisX + (W * n / N);
+    const toY = (y)=> axisY - H*y;
 
     const tickStroke = getComputedStyle(document.documentElement).getPropertyValue('--axis-stroke')?.trim()
       || 'rgba(127,127,127,0.85)';
     const textFill = getComputedStyle(document.documentElement).getPropertyValue('--axis-text')?.trim()
       || 'rgba(60,60,60,0.95)';
 
+    // ticks
     ctx.strokeStyle = tickStroke;
     ctx.lineWidth = 1;
     ctx.beginPath();
-    for (let t=0; t<=1.0001; t+=0.2){
-      ctx.moveTo(toX(t), cssH - pad); ctx.lineTo(toX(t), cssH - pad - tick);
-      ctx.moveTo(pad, toY(t));        ctx.lineTo(pad + tick, toY(t));
+
+    // y ticks: left axis, pointing LEFT (outwards)
+    for (let y=0; y<=1.0001; y+=0.2){
+      const Y = toY(y);
+      ctx.moveTo(axisX, Y);
+      ctx.lineTo(axisX - tick, Y);
+    }
+
+    // x ticks: bottom axis, pointing DOWN (outwards)
+    const step = Math.max(1, Math.round(N/6));
+    for (let n=0; n<=N; n+=step){
+      const X = toX(n);
+      ctx.moveTo(X, axisY);
+      ctx.lineTo(X, axisY + tick);
     }
     ctx.stroke();
 
+    // numbers
     ctx.fillStyle = textFill;
     ctx.font = `${12 * FS}px system-ui, sans-serif`;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-    for (let t=0; t<=1.0001; t+=0.2){ ctx.fillText(t.toFixed(1), toX(t), cssH - pad - tick - numGap); }
-    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    for (let t=0; t<=1.0001; t+=0.2){ ctx.fillText(t.toFixed(1), pad + tick + numGap, toY(t)); }
+
+    // x numbers below ticks
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    for (let n=0; n<=N; n+=step){
+      ctx.fillText(String(n), toX(n), axisY + tick + numGap);
+    }
+
+    // y numbers left of ticks
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    for (let y=0; y<=1.0001; y+=0.2){
+      ctx.fillText(y.toFixed(1), axisX - tick - numGap, toY(y));
+    }
   }
 
-  _drawAxesTicksTime(ctx, cssW, cssH){
-    const FS = this.o.fontScale;
-    const pad = 16 * FS, W = cssW - 2*pad, H = cssH - 2*pad;
-    const tick = 6 * FS, numGap = 4 * FS, N = this.o.N;
+  _drawAxesBifu(ctx, cssW, cssH, vMin, vMax){
+    const m = this._axisMetrics();
+    const { FS, tick, numGap, marginLeft, marginRight, marginTop, marginBottom } = m;
 
-    const toX = (n)=> pad + (W * n / N);
-    const toY = (y)=> cssH - pad - H*y;
+    const W = cssW - marginLeft - marginRight;
+    const H = cssH - marginTop - marginBottom;
+
+    const axisX = marginLeft;
+    const axisY = cssH - marginBottom;
+
+    const toX = (λ)=> axisX + W * ((λ - vMin) / (vMax - vMin));
+    const toY = (y)=> axisY - H * y;
 
     const tickStroke = getComputedStyle(document.documentElement).getPropertyValue('--axis-stroke')?.trim()
       || 'rgba(127,127,127,0.85)';
@@ -709,17 +781,40 @@ export default class LogisticExplorable {
     ctx.strokeStyle = tickStroke;
     ctx.lineWidth = 1;
     ctx.beginPath();
-    for (let y=0; y<=1.0001; y+=0.2){ const Y = toY(y); ctx.moveTo(pad, Y); ctx.lineTo(pad + tick, Y); }
-    const step = Math.max(1, Math.round(N/6));
-    for (let n=0; n<=N; n+=step){ const X = toX(n); ctx.moveTo(X, cssH - pad); ctx.lineTo(X, cssH - pad - tick); }
+
+    // x ticks (λ) — bottom axis, pointing DOWN
+    const step = 0.5;
+    for (let λ=vMin; λ<=vMax + 1e-9; λ+=step){
+      const X = toX(λ);
+      ctx.moveTo(X, axisY);
+      ctx.lineTo(X, axisY + tick);
+    }
+
+    // y ticks (x) — left axis, pointing LEFT
+    for (let y=0; y<=1.0001; y+=0.2){
+      const Y = toY(y);
+      ctx.moveTo(axisX, Y);
+      ctx.lineTo(axisX - tick, Y);
+    }
     ctx.stroke();
 
+    // numbers
     ctx.fillStyle = textFill;
     ctx.font = `${12 * FS}px system-ui, sans-serif`;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-    for (let n=0; n<=N; n+=step){ ctx.fillText(String(n), toX(n), cssH - pad - tick - numGap); }
-    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    for (let y=0; y<=1.0001; y+=0.2){ ctx.fillText(y.toFixed(1), pad + tick + numGap, toY(y)); }
+
+    // x numbers under ticks
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    for (let λ=vMin; λ<=vMax + 1e-9; λ+=step){
+      ctx.fillText(λ.toFixed(1), toX(λ), axisY + tick + numGap);
+    }
+
+    // y numbers left of ticks
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    for (let y=0; y<=1.0001; y+=0.2){
+      ctx.fillText(y.toFixed(1), axisX - tick - numGap, toY(y));
+    }
   }
 
   _renderTime(){
@@ -731,12 +826,15 @@ export default class LogisticExplorable {
     if (this.o.showAxes) this._drawAxesTicksTime(ctx, cssW, cssH);
     this._strokeRect(ctx, cssW, cssH);
 
-    const FS = this.o.fontScale;
-    const pad = 16 * FS, W = cssW - 2*pad, H = cssH - 2*pad;
+    const m = this._axisMetrics();
+    const { marginLeft, marginRight, marginTop, marginBottom } = m;
+    const W = cssW - marginLeft - marginRight;
+    const H = cssH - marginTop - marginBottom;
+    const axisY = cssH - marginBottom;
 
     const xs = iterate(this.x0, this.lambda, this.o.N);
-    const toX = (n)=> pad + (W * n / this.o.N);
-    const toY = (x)=> cssH - pad - H * clamp(x,0,1);
+    const toX = (n)=> marginLeft + (W * n / this.o.N);
+    const toY = (x)=> axisY - H * clamp(x,0,1);
 
     ctx.beginPath(); let moved=false;
     for (let n=0; n<=this.o.N; n++){
@@ -744,7 +842,20 @@ export default class LogisticExplorable {
       if (!moved) { ctx.moveTo(X,Y); moved=true; } else { ctx.lineTo(X,Y); }
     }
     ctx.strokeStyle = this._colors.series;
-    ctx.lineWidth = 2; ctx.stroke();
+    ctx.lineWidth = 2; 
+    ctx.stroke();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = this._colors.series;
+    ctx.fillStyle = 'transparent'; // just in case
+
+    for (let n = 0; n <= this.o.N; n++){
+      const X = toX(n);
+      const Y = toY(xs[n]);
+      ctx.beginPath();
+      ctx.arc(X, Y, 3, 0, 2*Math.PI);
+      ctx.stroke();           // outline only, no fill
+    }
+
   }
 
   _renderBifurcation(){
@@ -774,44 +885,13 @@ export default class LogisticExplorable {
     const srcX2 = Math.round(padBase + fracR * WBase);
     const srcW  = Math.max(1, srcX2 - srcX);
 
-    ctx.imageSmoothingEnabled = true;          // <— smoothing ON when drawing supersampled image down
+    ctx.imageSmoothingEnabled = true;          // smoothing ON when drawing supersampled image down
     ctx.drawImage(accCvs, srcX, 0, srcW, offH, padVis, 0, WVis, devH);
 
     // Axes with view domain
     ctx.setTransform(dpr,0,0,dpr,0,0);
     if (this.o.showAxes){
-      const pad = 16 * FS, W = cssW - 2*pad, H = cssH - 2*pad;
-      const tick = 6 * FS, numGap = 4 * FS;
-
-      const toX = (λ)=> pad + W * ((λ - vMin) / (vMax - vMin));
-      const toY = (y)=> cssH - pad - H * y;
-
-      const tickStroke = getComputedStyle(document.documentElement).getPropertyValue('--axis-stroke')?.trim()
-        || 'rgba(127,127,127,0.85)';
-      const textFill = getComputedStyle(document.documentElement).getPropertyValue('--axis-text')?.trim()
-        || 'rgba(60,60,60,0.95)';
-
-      ctx.strokeStyle = tickStroke;
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      const step = 0.5;
-      for (let λ=vMin; λ<=vMax + 1e-9; λ+=step){
-        const X = toX(λ);
-        ctx.moveTo(X, cssH - pad); ctx.lineTo(X, cssH - pad - tick);
-      }
-      for (let y=0; y<=1.0001; y+=0.2){
-        const Y = toY(y);
-        ctx.moveTo(pad, Y); ctx.lineTo(pad + tick, Y);
-      }
-      ctx.stroke();
-
-      ctx.fillStyle = textFill;
-      ctx.font = `${12 * FS}px system-ui, sans-serif`;
-      ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-      for (let λ=vMin; λ<=vMax + 1e-9; λ+=step){ ctx.fillText(λ.toFixed(1), toX(λ), cssH - pad - tick - numGap); }
-      ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-      for (let y=0; y<=1.0001; y+=0.2){ ctx.fillText(y.toFixed(1), pad + tick + numGap, toY(y)); }
-
+      this._drawAxesBifu(ctx, cssW, cssH, vMin, vMax);
       this._strokeRect(ctx, cssW, cssH);
     }
   }

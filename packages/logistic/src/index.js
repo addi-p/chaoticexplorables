@@ -1,7 +1,7 @@
 // Logistic Map (time series + cobweb) — axes via options, KaTeX labels,
 // presets dropdown (KaTeX, mutation-observed), slider<->dropdown<->animation sync,
 // slider value readouts ABOVE each slider, adaptive spacing with fontScale,
-// and LIGHT/DARK theme for axes, labels, and borders.
+// and LIGHT/DARK theme for axes, labels, borders, plus discrete markers.
 
 // --- one-time CSS (plain tone) ------------------------------------------------
 (function ensureWidgetsCSS(){
@@ -64,8 +64,14 @@ import dropdownElement from '../../widgets/src/dropdownElement.js';
 
 const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
 const f = (x, r) => r*x*(1-x);
-const iterate = (x0, r, N) => { const xs = new Array(N+1); xs[0]=x0; for(let i=0;i<N;i++) xs[i+1]=f(xs[i],r); return xs; };
-const fmt = (v)=> (Math.abs(v) < 1e-3 || Math.abs(v) >= 1e4) ? v.toExponential(2) : v.toFixed(3);
+const iterate = (x0, r, N) => {
+  const xs = new Array(N+1);
+  xs[0]=x0;
+  for(let i=0;i<N;i++) xs[i+1]=f(xs[i],r);
+  return xs;
+};
+const fmt = (v)=>
+  (Math.abs(v) < 1e-3 || Math.abs(v) >= 1e4) ? v.toExponential(2) : v.toFixed(3);
 
 function resizeCanvasToDisplaySize(cvs){
   const dpr = Math.max(1, devicePixelRatio||1);
@@ -113,6 +119,17 @@ function _autoGrowSVG(svg, extra = 8){
     const h = Math.ceil(bb.y + bb.height + extra);
     if (h > 0) svg.setAttribute('height', h);
   } catch { /* some browsers may not support getBBox until in DOM */ }
+}
+
+// Theme-dependent series colors
+function getThemeSeriesColors(){
+  const dark = globalThis.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches;
+  return {
+    timeSeries:  dark ? '#ffffff'        : '#2e73b8ff',
+    markerStroke:dark ? '#ffffff'        : '#2e73b8ff',
+    cobwebCurve: dark ? '#ffffff'        : 'hsl(210 60% 45%)',
+    cobwebSteps: dark ? 'hsl(10 70% 65%)': 'hsl(10 70% 45%)'
+  };
 }
 
 export default class LogisticExplorable {
@@ -211,6 +228,43 @@ export default class LogisticExplorable {
     // responsive
     this._ro = new ResizeObserver(()=> this._resizeAll());
     this._ro.observe(this.root);
+  }
+
+  /* ---------- Axis layout helpers: "plot rect" inside canvas ---------- */
+
+  _axisMetrics(){
+    const FS = this.o.fontScale;
+    const tick = 6 * FS;
+    const numGap = 4 * FS;
+    const labelInset = 30 * FS;     // space reserved for axis labels below / left of ticks
+    const labelFont = 12 * FS;
+
+    // margins around the INNER plot (where data lives)
+    const marginBottom = tick + numGap + labelFont + labelInset;
+    const marginLeft   = tick + numGap + labelFont + labelInset;
+    const marginTop    = 8 * FS;
+    const marginRight  = 8 * FS;
+
+    // extra spacing so axis labels don't collide with tick labels
+    const axisLabelBottom = 5 * FS;      // px from canvas bottom
+    const axisLabelLeftExtra = 100 * FS;  // extra left distance beyond tick labels
+
+    return {
+      FS, tick, numGap, labelInset,
+      marginBottom, marginLeft, marginTop, marginRight,
+      axisLabelBottom, axisLabelLeftExtra
+    };
+  }
+
+  _computePlotRect(cssW, cssH){
+    const m = this._axisMetrics();
+    const left   = m.marginLeft;
+    const right  = cssW - m.marginRight;
+    const top    = m.marginTop;
+    const bottom = cssH - m.marginBottom;
+    const W = Math.max(1, right - left);
+    const H = Math.max(1, bottom - top);
+    return Object.assign({ left, right, top, bottom, W, H }, m);
   }
 
   /* controls */
@@ -474,10 +528,8 @@ export default class LogisticExplorable {
       return;
     }
     const katex = await ensureKaTeX();
-    const FS = this.o.fontScale;
-    const pad = 16 * FS;
-    // unify spacing with ticks
-    const tick = 6 * FS, numGap = 3 * FS, labelInset = 26 * FS;
+    const m = this._axisMetrics();
+    const { FS, tick, numGap, marginLeft, axisLabelBottom, axisLabelLeftExtra } = m;
 
     this.timeLabels.x.innerHTML=''; katex.render('n', this.timeLabels.x);
     this.timeLabels.y.innerHTML=''; katex.render('x_n', this.timeLabels.y);
@@ -488,40 +540,56 @@ export default class LogisticExplorable {
       el.style.fontSize = `${13 * FS}px`;
     }
 
+    // x-axis labels: centered, with extra padding away from tick labels
     Object.assign(this.timeLabels.x.style, {
-      left: '50%', bottom: `${pad + tick + numGap + labelInset}px`, top:'auto', right:'auto', transform: 'translate(-50%, 0)'
-    });
-    Object.assign(this.timeLabels.y.style, {
-      left: `${pad + tick + numGap + labelInset}px`, top: '50%',
-      transform: 'translate(0, -50%) rotate(-90deg)', transformOrigin: 'left top'
+      left: '50%',
+      bottom: `${axisLabelBottom}px`,
+      top:'auto', right:'auto',
+      transform: 'translate(-50%, 0)'
     });
     Object.assign(this.cobLabels.x.style, {
-      left: '50%', bottom: `${pad + tick + numGap + labelInset}px`, top:'auto', transform: 'translate(-50%, 0)'
+      left: '50%',
+      bottom: `${axisLabelBottom}px`,
+      top:'auto',
+      transform: 'translate(-50%, 0)'
+    });
+
+    // y-axis labels: further left from tick labels
+    const leftForLabels = marginLeft - (tick + numGap + axisLabelLeftExtra);
+    Object.assign(this.timeLabels.y.style, {
+      left: `${Math.max(2, leftForLabels)}px`,
+      top: '50%',
+      transform: 'translate(0, -50%) rotate(-90deg)',
+      transformOrigin: 'left top'
     });
     Object.assign(this.cobLabels.y.style, {
-      left: `${pad + tick + numGap + labelInset}px`, top: '50%',
-      transform: 'translate(0, -50%) rotate(-90deg)', transformOrigin: 'left top'
+      left: `${Math.max(2, leftForLabels)}px`,
+      top: '50%',
+      transform: 'translate(0, -50%) rotate(-90deg)',
+      transformOrigin: 'left top'
     });
   }
 
   /* drawing helpers */
   _strokeRect(ctx, cssW, cssH){
-    // border respects theme var
+    // border around *plot region*, not whole canvas
     const dark = globalThis.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches;
-    ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--color-border')?.trim()
+    const border = getComputedStyle(document.documentElement).getPropertyValue('--color-border')?.trim()
       || (dark ? '#5b5b5b' : '#c9c9c9');
+
+    const { left, top, W, H } = this._computePlotRect(cssW, cssH);
+    ctx.strokeStyle = border;
     ctx.lineWidth = 1;
-    ctx.strokeRect(0.5,0.5,cssW-1,cssH-1);
+    ctx.strokeRect(left + 0.5, top + 0.5, W - 1, H - 1);
   }
 
   _drawAxesTicks01(ctx, cssW, cssH){
-    const FS = this.o.fontScale;
-    const pad = 16 * FS, W = cssW - 2*pad, H = cssH - 2*pad;
-    const tick = 6 * FS;
-    const numGap = 4 * FS;
+    // 0–1 × 0–1 axes OUTSIDE the inner plot rect
+    const { FS, tick, numGap } = this._axisMetrics();
+    const { left, bottom, W, H } = this._computePlotRect(cssW, cssH);
 
-    const toX = (x)=> pad + W*x;
-    const toY = (y)=> cssH - pad - H*y;
+    const toX = (x)=> left + W*x;
+    const toY = (y)=> bottom - H*y;
 
     const dark = globalThis.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches;
     const tickStroke = getComputedStyle(document.documentElement).getPropertyValue('--axis-stroke')?.trim()
@@ -532,29 +600,44 @@ export default class LogisticExplorable {
     ctx.strokeStyle = tickStroke;
     ctx.lineWidth = 1;
     ctx.beginPath();
-    for (let t=0; t<=1.0001; t+=0.2){
-      ctx.moveTo(toX(t), cssH - pad); ctx.lineTo(toX(t), cssH - pad - tick);
-      ctx.moveTo(pad, toY(t));        ctx.lineTo(pad + tick, toY(t));
+    // x ticks (bottom, outward)
+    for (let tVal=0; tVal<=1.0001; tVal+=0.2){
+      const X = toX(tVal);
+      ctx.moveTo(X, bottom);
+      ctx.lineTo(X, bottom + tick);
+    }
+    // y ticks (left, outward)
+    for (let tVal=0; tVal<=1.0001; tVal+=0.2){
+      const Y = toY(tVal);
+      ctx.moveTo(left, Y);
+      ctx.lineTo(left - tick, Y);
     }
     ctx.stroke();
 
     ctx.fillStyle = textFill;
     ctx.font = `${12 * FS}px system-ui, sans-serif`;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-    for (let t=0; t<=1.0001; t+=0.2) ctx.fillText(t.toFixed(1), toX(t), cssH - pad - tick - numGap);
-    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    for (let t=0; t<=1.0001; t+=0.2) ctx.fillText(t.toFixed(1), pad + tick + numGap, toY(t));
+
+    // x numbers below ticks
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    for (let tVal=0; tVal<=1.0001; tVal+=0.2){
+      ctx.fillText(tVal.toFixed(1), toX(tVal), bottom + tick + numGap);
+    }
+
+    // y numbers left of ticks
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    for (let tVal=0; tVal<=1.0001; tVal+=0.2){
+      ctx.fillText(tVal.toFixed(1), left - tick - numGap, toY(tVal));
+    }
   }
 
   _drawAxesTicksTime(ctx, cssW, cssH){
-    const FS = this.o.fontScale;
-    const pad = 16 * FS, W = cssW - 2*pad, H = cssH - 2*pad;
-    const tick = 6 * FS;
-    const numGap = 4 * FS;
+    // n on x, x_n on y; axes outside inner plot rect
+    const { FS, tick, numGap } = this._axisMetrics();
+    const { left, bottom, W, H } = this._computePlotRect(cssW, cssH);
     const N = this.o.N;
 
-    const toX = (n)=> pad + (W * n / N);
-    const toY = (y)=> cssH - pad - H*y;
+    const toX = (n)=> left + (W * n / N);
+    const toY = (y)=> bottom - H*y;
 
     const dark = globalThis.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches;
     const tickStroke = getComputedStyle(document.documentElement).getPropertyValue('--axis-stroke')?.trim()
@@ -565,17 +648,35 @@ export default class LogisticExplorable {
     ctx.strokeStyle = tickStroke;
     ctx.lineWidth = 1;
     ctx.beginPath();
-    for (let y=0; y<=1.0001; y+=0.2){ const Y = toY(y); ctx.moveTo(pad, Y); ctx.lineTo(pad + tick, Y); }
+    // y ticks on left, outward
+    for (let y=0; y<=1.0001; y+=0.2){
+      const Y = toY(y);
+      ctx.moveTo(left, Y);
+      ctx.lineTo(left - tick, Y);
+    }
+    // x ticks on bottom, outward
     const step = Math.max(1, Math.round(N/6));
-    for (let n=0; n<=N; n+=step){ const X = toX(n); ctx.moveTo(X, cssH - pad); ctx.lineTo(X, cssH - pad - tick); }
+    for (let n=0; n<=N; n+=step){
+      const X = toX(n);
+      ctx.moveTo(X, bottom);
+      ctx.lineTo(X, bottom + tick);
+    }
     ctx.stroke();
 
     ctx.fillStyle = textFill;
     ctx.font = `${12 * FS}px system-ui, sans-serif`;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-    for (let n=0; n<=N; n+=step) ctx.fillText(String(n), toX(n), cssH - pad - tick - numGap);
-    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    for (let y=0; y<=1.0001; y+=0.2) ctx.fillText(y.toFixed(1), pad + tick + numGap, toY(y));
+
+    // x numbers
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    for (let n=0; n<=N; n+=step){
+      ctx.fillText(String(n), toX(n), bottom + tick + numGap);
+    }
+
+    // y numbers
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    for (let y=0; y<=1.0001; y+=0.2){
+      ctx.fillText(y.toFixed(1), left - tick - numGap, toY(y));
+    }
   }
 
   /* renders */
@@ -588,20 +689,33 @@ export default class LogisticExplorable {
     if (this.o.showAxes) this._drawAxesTicksTime(ctx, cssW, cssH);
     this._strokeRect(ctx, cssW, cssH);
 
-    const FS = this.o.fontScale;
-    const pad = 16 * FS, W = cssW - 2*pad, H = cssH - 2*pad;
+    const { left, bottom, W, H } = this._computePlotRect(cssW, cssH);
+    const colors = getThemeSeriesColors();
 
     const xs = iterate(this.x0, this.lambda, this.o.N);
-    const toX = (n)=> pad + (W * n / this.o.N);
-    const toY = (x)=> cssH - pad - H * clamp(x,0,1);
+    const toX = (n)=> left + (W * n / this.o.N);
+    const toY = (x)=> bottom - H * clamp(x,0,1);
 
-    ctx.beginPath(); let moved=false;
+    // guide line
+    ctx.beginPath();
+    let moved=false;
     for (let n=0; n<=this.o.N; n++){
       const X=toX(n), Y=toY(xs[n]);
       if (!moved) { ctx.moveTo(X,Y); moved=true; } else { ctx.lineTo(X,Y); }
     }
-    ctx.strokeStyle = '#ffffffff';
-    ctx.lineWidth = 4; ctx.stroke();
+    ctx.strokeStyle = colors.timeSeries;
+    ctx.lineWidth = 2; ctx.stroke();
+
+    // discrete markers for each x_n (foreground, stroked only)
+    const r = 3 * this.o.fontScale;
+    ctx.strokeStyle = colors.markerStroke;
+    ctx.lineWidth = 1.5 * this.o.fontScale;
+    for (let n=0; n<=this.o.N; n++){
+      const X = toX(n), Y = toY(xs[n]);
+      ctx.beginPath();
+      ctx.arc(X, Y, r, 0, Math.PI*2);
+      ctx.stroke();
+    }
   }
 
   _renderCobweb(){
@@ -614,9 +728,10 @@ export default class LogisticExplorable {
     if (this.o.showAxes) this._drawAxesTicks01(ctx, cssW, cssH);
     this._strokeRect(ctx, cssW, cssH);
 
-    const FS = this.o.fontScale;
-    const pad = 16 * FS, W = cssW - 2*pad, H = cssH - 2*pad;
-    const toX = (x)=> pad + W*x, toY = (y)=> cssH - pad - H*y;
+    const { left, bottom, W, H } = this._computePlotRect(cssW, cssH);
+    const toX = (x)=> left + W*x;
+    const toY = (y)=> bottom - H*y;
+    const colors = getThemeSeriesColors();
 
     // diagonal y=x
     const dark = globalThis.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches;
@@ -633,12 +748,12 @@ export default class LogisticExplorable {
       const X=toX(x), Y=toY(clamp(y,0,1));
       i?ctx.lineTo(X,Y):ctx.moveTo(X,Y);
     }
-    ctx.strokeStyle='hsla(0, 0%, 100%, 1.00)';
+    ctx.strokeStyle = colors.cobwebCurve;
     ctx.lineWidth=4; ctx.stroke();
 
     // cobweb from x0
     let x=this.x0;
-    ctx.strokeStyle='hsl(10 60% 45%)';
+    ctx.strokeStyle = colors.cobwebSteps;
     ctx.lineWidth=2;
     ctx.beginPath();
     for (let n=0;n<this.o.N;n++){
