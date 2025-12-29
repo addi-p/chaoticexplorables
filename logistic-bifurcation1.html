@@ -2,7 +2,7 @@
 <meta charset="utf-8" />
 <title>Logistic Explorable (with Axes)</title>
 <style>
-  html, body { margin: 0; padding: 10;top: 100px; background-color: black;}
+  html, body { margin: 0; padding: 10;top: 100px; }
   #card { max-width: none; overflow: auto; padding: 100px; }
 </style>
 
@@ -17,9 +17,9 @@
   const card = new ExplorableCard('#card', {
     ExplorableClass: LogisticExplorable,
     title: '',
-    width: 2500,
+    width: 1500,
     explorable: {
-      sceneSize: 800,       // left plot (square)
+      sceneSize: 500,       // left plot (square)
       bifuWidthScale: 1.5,  // width multiplier for the bifurcation plot (right)
       N: 80,
       showAxes: true,

@@ -2,7 +2,7 @@
 <meta charset="utf-8" />
 <title>Logistic Explorable (with Axes)</title>
 <style>
-  html, body { margin: 0; padding: 0;background-color: black; }
+  html, body { margin: 0; padding: 0;}
   #card { max-width: none; overflow: auto; padding: 12px; }
 </style>
 
@@ -17,10 +17,10 @@
   const card = new ExplorableCard('#card', {
     ExplorableClass: LogisticExplorable,
     title: '',
-    width: 1000,
+    width: 500,
     explorable: {
-      layout: 'row',
-      controlsAt: 'end',
+      layout: 'stack',
+      controlsAt: 'top',
       sceneSize: 500,
       N: 25,
       play:false,
